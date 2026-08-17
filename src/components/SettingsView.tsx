@@ -5,28 +5,19 @@ import {
   Check,
   FileSpreadsheet,
   Download,
-  Wifi,
-  WifiOff,
-  RefreshCw,
 } from 'lucide-react';
 import type { Fellowship } from '../types';
 import { db } from '../lib/db';
-import { queueMutation, type NetworkStatus } from '../lib/syncEngine';
+import { queueMutation } from '../lib/syncEngine';
 import { exportAllMembersAttendanceRateCSV } from '../lib/exportUtils';
 
 interface SettingsViewProps {
   fellowship: Fellowship | null;
-  networkStatus: NetworkStatus;
-  isSyncing: boolean;
-  onManualSync: () => void;
   onRefresh: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   fellowship,
-  networkStatus,
-  isSyncing,
-  onManualSync,
   onRefresh,
 }) => {
   const [name, setName] = useState(fellowship?.name || 'My Fellowship');
@@ -73,7 +64,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div>
         <h2 className="text-xl font-black text-white">Settings &amp; Reports</h2>
         <p className="text-xs text-zinc-400 mt-0.5">
-          Manage fellowship name, PIN, and download master reports.
+          Manage your organization name, PIN, and download master attendance.
         </p>
       </div>
 
@@ -90,7 +81,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <button
           type="button"
-          onClick={() => exportAllMembersAttendanceRateCSV(fellowship?.id || '', 'Fellowship_Attendance_Master')}
+          onClick={() => exportAllMembersAttendanceRateCSV(fellowship?.id || '', 'atendee_Master_Report')}
           className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-lg shadow-yellow-950/40 active:scale-95 whitespace-nowrap cursor-pointer"
         >
           <Download className="w-4 h-4" />
@@ -101,7 +92,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* 2. General Profile & Kiosk PIN */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
         <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-yellow-400" /> Fellowship Profile
+          <Building2 className="w-5 h-5 text-yellow-400" /> Organization Profile
         </h3>
 
         {savedMessage && (
@@ -151,36 +142,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </form>
       </div>
 
-      {/* 3. Cloud Sync Status */}
-      <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {networkStatus === 'online' ? (
-            <Wifi className="w-5 h-5 text-yellow-400" />
-          ) : (
-            <WifiOff className="w-5 h-5 text-amber-500" />
-          )}
-          <div>
-            <div className="text-sm font-bold text-white">
-              {networkStatus === 'online' ? 'Cloud Connected (Supabase)' : 'Offline Storage (Local)'}
-            </div>
-            <div className="text-xs text-zinc-400">
-              Automatic sync enabled
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onManualSync}
-          disabled={isSyncing}
-          className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition flex items-center gap-1.5"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-yellow-400' : ''}`} />
-          <span>{isSyncing ? 'Syncing...' : 'Sync'}</span>
-        </button>
-      </div>
-
-      {/* 4. Danger Zone */}
+      {/* 3. Danger Zone */}
       <div className="bg-zinc-900 border border-rose-950 p-5 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="text-sm font-bold text-rose-400">Reset Local Database</div>

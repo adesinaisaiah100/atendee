@@ -4,9 +4,6 @@ import {
   CheckCircle2,
   Lock,
   UserPlus,
-  Wifi,
-  WifiOff,
-  Sparkles,
   Users,
   Calendar,
   X,
@@ -15,6 +12,7 @@ import confetti from 'canvas-confetti';
 import { ConfirmModal } from './ConfirmModal';
 import { NewMemberModal } from './NewMemberModal';
 import { AdminPinModal } from './AdminPinModal';
+import { AtendeeLogo } from './AtendeeLogo';
 import type { Member, Session, EventTemplate, AttendanceRecord } from '../types';
 import { checkInMemberOptimistic, registerPendingMember } from '../lib/syncEngine';
 
@@ -25,7 +23,6 @@ interface KioskCheckInProps {
   attendanceRecords: AttendanceRecord[];
   onExitKiosk: () => void;
   pinCode?: string;
-  isOnline: boolean;
 }
 
 export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
@@ -35,7 +32,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   attendanceRecords,
   onExitKiosk,
   pinCode = '1234',
-  isOnline,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -103,7 +99,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
       await checkInMemberOptimistic(session.id, selectedMember.id, 'self');
       setIsConfirmOpen(false);
       
-      // Fire celebration confetti with Yellow, Gold & White colors
+      // Fire celebration confetti with Yellow & Gold
       confetti({
         particleCount: 70,
         spread: 65,
@@ -140,13 +136,13 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
         <div className="w-16 h-16 bg-yellow-400/10 text-yellow-400 rounded-2xl flex items-center justify-center mb-4 border border-yellow-400/30">
           <Calendar className="w-8 h-8" />
         </div>
-        <h2 className="text-2xl font-bold text-white mb-2">No Active Session Open</h2>
+        <h2 className="text-2xl font-bold text-white mb-2">No Active Session</h2>
         <p className="text-zinc-400 text-sm max-w-sm mb-6">
           There is no open attendance session right now.
         </p>
         <button
           onClick={onExitKiosk}
-          className="px-6 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black rounded-2xl transition shadow-lg"
+          className="px-6 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black rounded-2xl transition shadow-lg cursor-pointer"
         >
           Return to Events
         </button>
@@ -164,9 +160,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
       <header className="sticky top-0 z-30 bg-zinc-900/95 backdrop-blur-md border-b border-zinc-800 px-4 py-3 shadow-lg">
         <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-yellow-400 text-black flex items-center justify-center font-black shadow-md shadow-yellow-950/40">
-              <Sparkles className="w-5 h-5" />
-            </div>
+            <AtendeeLogo size="sm" showText={false} />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs uppercase tracking-widest font-black text-yellow-400">
@@ -182,28 +176,15 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
             </div>
           </div>
 
-          {/* Right Header Status & PIN Lock Exit */}
-          <div className="flex items-center gap-2">
-            <div
-              className="p-2 text-zinc-400"
-              title={isOnline ? 'Online' : 'Offline (Local)'}
-            >
-              {isOnline ? (
-                <Wifi className="w-4 h-4 text-yellow-400" />
-              ) : (
-                <WifiOff className="w-4 h-4 text-amber-500" />
-              )}
-            </div>
-
-            <button
-              onClick={() => setIsPinOpen(true)}
-              className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition border border-zinc-700 active:scale-95 flex items-center gap-1.5 text-xs font-bold"
-              title="Admin Exit (PIN Protected)"
-            >
-              <Lock className="w-4 h-4 text-yellow-400" />
-              <span className="hidden sm:inline">Admin Exit</span>
-            </button>
-          </div>
+          {/* Admin PIN Lock Exit */}
+          <button
+            onClick={() => setIsPinOpen(true)}
+            className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition border border-zinc-700 active:scale-95 flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+            title="Admin Exit"
+          >
+            <Lock className="w-4 h-4 text-yellow-400" />
+            <span className="hidden sm:inline">Admin Exit</span>
+          </button>
         </div>
       </header>
 
@@ -245,14 +226,14 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-white rounded-full bg-zinc-800"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-white rounded-full bg-zinc-800 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        {/* Alphabet Jump Bar (when not searching) */}
+        {/* Alphabet Jump Bar */}
         {!searchQuery && availableLetters.length > 4 && (
           <div className="flex items-center gap-1 overflow-x-auto pb-2 mb-3 no-scrollbar">
             {availableLetters.map(letter => (
@@ -351,7 +332,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
               <button
                 type="button"
                 onClick={() => setIsNewMemberOpen(true)}
-                className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black rounded-xl text-xs font-black transition flex items-center gap-2 mx-auto shadow-lg shadow-yellow-950/40"
+                className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black rounded-xl text-xs font-black transition flex items-center gap-2 mx-auto shadow-lg shadow-yellow-950/40 cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
                 Add &amp; Check In as Guest
@@ -367,7 +348,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
           <button
             type="button"
             onClick={() => setIsNewMemberOpen(true)}
-            className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 hover:text-white rounded-2xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 active:scale-95 shadow"
+            className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 hover:text-white rounded-2xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 active:scale-95 shadow cursor-pointer"
           >
             <UserPlus className="w-4 h-4 text-yellow-400" />
             Can't Find Your Name? Tap Here

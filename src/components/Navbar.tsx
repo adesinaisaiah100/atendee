@@ -5,12 +5,9 @@ import {
   HeartHandshake,
   Smartphone,
   Settings,
-  Wifi,
-  WifiOff,
-  Sparkles,
   LogOut,
 } from 'lucide-react';
-import type { NetworkStatus } from '../lib/syncEngine';
+import { AtendeeLogo } from './AtendeeLogo';
 
 export type MainTab = 'events' | 'people' | 'missing' | 'settings';
 
@@ -20,7 +17,6 @@ interface NavbarProps {
   missingCount: number;
   hasActiveSession: boolean;
   onLaunchKiosk: () => void;
-  networkStatus: NetworkStatus;
   fellowshipName: string;
   onLogout: () => void;
 }
@@ -31,7 +27,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   missingCount,
   hasActiveSession,
   onLaunchKiosk,
-  networkStatus,
   fellowshipName,
   onLogout,
 }) => {
@@ -51,21 +46,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
       {/* Top Header */}
       <header className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800 shadow-md">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16 gap-3">
-            {/* Fellowship Title */}
+            {/* Brand Logo & Fellowship Name */}
             <div
               onClick={() => setActiveTab('events')}
-              className="flex items-center gap-2.5 cursor-pointer select-none min-w-0"
+              className="flex items-center gap-3 cursor-pointer select-none min-w-0"
             >
-              <div className="w-9 h-9 rounded-xl bg-yellow-400 text-black flex items-center justify-center font-black shadow-md shadow-yellow-950/50 flex-shrink-0">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-sm sm:text-base font-extrabold text-white leading-tight truncate">
+              <AtendeeLogo size="sm" showText={true} />
+              <div className="hidden sm:block border-l border-zinc-800 pl-3">
+                <span className="text-xs font-bold text-zinc-400 truncate block max-w-[180px]">
                   {fellowshipName}
-                </h1>
-                <span className="text-[11px] text-yellow-400 font-semibold">Attendance</span>
+                </span>
               </div>
             </div>
 
@@ -79,7 +71,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => setActiveTab(item.id)}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                       isActive
                         ? 'bg-yellow-400 text-black shadow-sm'
                         : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
@@ -99,22 +91,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Actions */}
             <div className="flex items-center gap-2">
-              <div
-                className="p-2 text-zinc-400"
-                title={networkStatus === 'online' ? 'Online' : 'Offline'}
-              >
-                {networkStatus === 'online' ? (
-                  <Wifi className="w-4 h-4 text-yellow-400" />
-                ) : (
-                  <WifiOff className="w-4 h-4 text-amber-500" />
-                )}
-              </div>
-
               {hasActiveSession && (
                 <button
                   type="button"
                   onClick={onLaunchKiosk}
-                  className="bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black font-black text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-yellow-950/40"
+                  className="bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black font-black text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-yellow-950/40 cursor-pointer"
                 >
                   <Smartphone className="w-4 h-4" />
                   <span>Pass Phone</span>
@@ -124,8 +105,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onLogout}
-                className="p-2 text-zinc-500 hover:text-zinc-200 rounded-xl hover:bg-zinc-900 transition"
-                title="Lock Admin Hub"
+                className="p-2 text-zinc-500 hover:text-zinc-200 rounded-xl hover:bg-zinc-900 transition cursor-pointer"
+                title="Lock Admin"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -145,8 +126,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition relative ${
-                  isActive ? 'text-yellow-400 font-extrabold' : 'text-zinc-400 hover:text-zinc-200'
+                className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition relative cursor-pointer ${
+                  isActive ? 'text-yellow-400 font-black' : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 <div className="relative">

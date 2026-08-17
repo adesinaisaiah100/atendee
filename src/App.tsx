@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './lib/db';
 import { initializeSeedData, DEFAULT_FELLOWSHIP_ID } from './lib/seedData';
-import { flushSyncQueue, computeInactivityAlerts, type NetworkStatus } from './lib/syncEngine';
+import { flushSyncQueue, computeInactivityAlerts } from './lib/syncEngine';
 import { Navbar, type MainTab } from './components/Navbar';
 import { LoginView } from './components/LoginView';
 import { KioskCheckIn } from './components/KioskCheckIn';
@@ -19,11 +19,6 @@ export function App() {
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [inactivityThreshold, setInactivityThreshold] = useState(3);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
-  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(
-    navigator.onLine ? 'online' : 'offline'
-  );
-  const [isSyncing, setIsSyncing] = useState(false);
-
   // Initialize clean state & clear any previous mock events
   useEffect(() => {
     initializeSeedData().then(async () => {
@@ -42,21 +37,12 @@ export function App() {
     });
 
     const handleOnline = () => {
-      setNetworkStatus('online');
-      setIsSyncing(true);
-      flushSyncQueue().finally(() => setIsSyncing(false));
-    };
-
-    const handleOffline = () => {
-      setNetworkStatus('offline');
+      flushSyncQueue();
     };
 
     window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -84,15 +70,6 @@ export function App() {
     });
   }, [isInitialized, members, sessions, attendanceRecords, inactivityThreshold]);
 
-  const handleManualSync = async () => {
-    setIsSyncing(true);
-    try {
-      await flushSyncQueue();
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const handleCloseSession = async (sessionId: string) => {
     if (window.confirm('End this service session? Self-service phone check-in will be closed.')) {
       await db.sessions.update(sessionId, {
@@ -107,7 +84,7 @@ export function App() {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-bold text-zinc-300">Loading Fellowship...</p>
+        <p className="text-sm font-bold text-zinc-300">Loading atendee...</p>
       </div>
     );
   }
@@ -122,7 +99,6 @@ export function App() {
         attendanceRecords={attendanceRecords}
         onExitKiosk={() => setIsKioskMode(false)}
         pinCode={fellowship?.pin_code || '1234'}
-        isOnline={networkStatus === 'online'}
       />
     );
   }
@@ -149,7 +125,6 @@ export function App() {
         missingCount={inactivityAlerts.length}
         hasActiveSession={Boolean(activeSession)}
         onLaunchKiosk={() => setIsKioskMode(true)}
-        networkStatus={networkStatus}
         fellowshipName={fellowship?.name || 'My Fellowship'}
         onLogout={() => setIsLoggedIn(false)}
       />
@@ -190,9 +165,6 @@ export function App() {
         {activeTab === 'settings' && (
           <SettingsView
             fellowship={fellowship || null}
-            networkStatus={networkStatus}
-            isSyncing={isSyncing}
-            onManualSync={handleManualSync}
             onRefresh={() => {}}
           />
         )}
