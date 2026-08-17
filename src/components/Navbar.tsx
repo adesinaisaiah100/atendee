@@ -3,7 +3,6 @@ import {
   Users,
   Calendar,
   HeartHandshake,
-  Plus,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -15,7 +14,6 @@ interface NavbarProps {
   activeTab: MainTab;
   setActiveTab: (tab: MainTab) => void;
   missingCount: number;
-  onCreateEvent: () => void;
   fellowshipName: string;
   onLogout: () => void;
 }
@@ -24,7 +22,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   missingCount,
-  onCreateEvent,
   fellowshipName,
   onLogout,
 }) => {
@@ -45,15 +42,15 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Top Header */}
       <header className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800/80 shadow-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-8">
-          <div className="flex items-center justify-between h-16 sm:h-20 gap-4">
+          <div className="flex items-center justify-between h-14 sm:h-18 gap-3">
             {/* Brand Logo & Fellowship Name */}
             <div
               onClick={() => setActiveTab('events')}
-              className="flex items-center gap-3.5 cursor-pointer select-none min-w-0"
+              className="flex items-center gap-3 cursor-pointer select-none min-w-0"
             >
-              <AtendeeLogo size="md" showText={true} />
-              <div className="hidden md:block border-l border-zinc-800 pl-3.5">
-                <span className="text-xs font-bold text-zinc-400 truncate block max-w-[240px]">
+              <AtendeeLogo size="sm" showText={true} />
+              <div className="hidden sm:block border-l border-zinc-800 pl-3">
+                <span className="text-xs font-bold text-zinc-400 truncate block max-w-[200px]">
                   {fellowshipName}
                 </span>
               </div>
@@ -87,21 +84,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               })}
             </nav>
 
-            {/* Right Actions: + Create Event Button & Logout */}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onCreateEvent}
-                className="bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black font-black text-xs sm:text-sm px-4 py-2.5 rounded-xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ Create Event</span>
-              </button>
-
+            {/* Right Action: Clean Lock / Logout */}
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onLogout}
-                className="p-2.5 text-zinc-400 hover:text-white rounded-xl hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition cursor-pointer"
+                className="p-2 sm:p-2.5 text-zinc-400 hover:text-white rounded-xl hover:bg-zinc-900 border border-zinc-800/60 transition cursor-pointer"
                 title="Lock Admin Hub"
               >
                 <LogOut className="w-4 h-4" />
@@ -112,7 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </header>
 
       {/* Mobile Bottom Navigation Bar */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 px-4 py-2.5 shadow-2xl safe-bottom">
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800 px-4 py-2 shadow-2xl safe-bottom">
         <div className="grid grid-cols-4 gap-2 max-w-md mx-auto">
           {navItems.map(item => {
             const Icon = item.icon;

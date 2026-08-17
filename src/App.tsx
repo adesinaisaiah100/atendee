@@ -124,10 +124,6 @@ export function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         missingCount={inactivityAlerts.length}
-        onCreateEvent={() => {
-          setActiveTab('events');
-          setIsCreateEventOpen(true);
-        }}
         fellowshipName={fellowship?.name || 'My Fellowship'}
         onLogout={() => setIsLoggedIn(false)}
       />

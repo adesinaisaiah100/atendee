@@ -430,27 +430,29 @@ export const EventsView: React.FC<EventsViewProps> = ({
   return (
     <div className="space-y-6 w-full pb-16">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black text-white">Events &amp; Gatherings</h2>
+          <h2 className="text-xl sm:text-2xl font-black text-white">Events</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             Select an event to start attendance or view past records.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsCreateModalOpen(true)}
-          className="px-5 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Create Event</span>
-        </button>
+        {events.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setIsCreateModalOpen(true)}
+            className="px-4 sm:px-5 py-2.5 sm:py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-xl sm:rounded-2xl transition flex items-center gap-1.5 sm:gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ New Event</span>
+          </button>
+        )}
       </div>
 
       {/* Events Cards Grid */}
       {events.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
           {events.map(ev => {
             const evSessions = sessions.filter(s => s.event_id === ev.id);
             const isLive = activeSession?.event_id === ev.id;
