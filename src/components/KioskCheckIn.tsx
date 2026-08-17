@@ -3,18 +3,16 @@ import {
   Search,
   CheckCircle2,
   Lock,
-  UserPlus,
   Users,
   Calendar,
   X,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ConfirmModal } from './ConfirmModal';
-import { NewMemberModal } from './NewMemberModal';
 import { AdminPinModal } from './AdminPinModal';
 import { AtendeeLogo } from './AtendeeLogo';
 import type { Member, Session, EventTemplate, AttendanceRecord } from '../types';
-import { checkInMemberOptimistic, registerPendingMember } from '../lib/syncEngine';
+import { checkInMemberOptimistic } from '../lib/syncEngine';
 
 interface KioskCheckInProps {
   session: Session | null;
@@ -36,7 +34,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [isNewMemberOpen, setIsNewMemberOpen] = useState(false);
   const [isPinOpen, setIsPinOpen] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -116,20 +113,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
     }
   };
 
-  const handleNewGuestSubmit = async (name: string, phone?: string) => {
-    if (!session) return;
-    await registerPendingMember(session.fellowship_id, session.id, name, phone);
-    
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.8 },
-      colors: ['#facc15', '#eab308', '#ffffff'],
-    });
-
-    showToast(`✨ Welcome! ${name} registered.`);
-  };
-
   if (!session) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-zinc-950">
@@ -189,7 +172,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-2xl w-full mx-auto p-4 flex flex-col pb-28">
+      <main className="flex-1 max-w-2xl w-full mx-auto p-4 flex flex-col pb-12">
         {/* Progress & Live Counter Banner */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 mb-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -325,36 +308,14 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
               <div className="w-12 h-12 mx-auto mb-3 bg-zinc-800 rounded-2xl flex items-center justify-center text-zinc-400">
                 <Search className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-white mb-1">Name not on list</h3>
-              <p className="text-zinc-400 text-xs max-w-xs mx-auto mb-4">
-                "{searchQuery}" is not registered. Tap below to check in as a guest.
+              <h3 className="text-base font-bold text-white mb-1">Name not found</h3>
+              <p className="text-zinc-400 text-xs max-w-xs mx-auto">
+                "{searchQuery}" is not on the roster. Please ask an admin to add you.
               </p>
-              <button
-                type="button"
-                onClick={() => setIsNewMemberOpen(true)}
-                className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black rounded-xl text-xs font-black transition flex items-center gap-2 mx-auto shadow-lg shadow-yellow-950/40 cursor-pointer"
-              >
-                <UserPlus className="w-4 h-4" />
-                Add &amp; Check In as Guest
-              </button>
             </div>
           )}
         </div>
       </main>
-
-      {/* Floating Bottom Action Bar for Guests */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-zinc-950/90 backdrop-blur-md border-t border-zinc-800 z-20">
-        <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setIsNewMemberOpen(true)}
-            className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 hover:text-white rounded-2xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 active:scale-95 shadow cursor-pointer"
-          >
-            <UserPlus className="w-4 h-4 text-yellow-400" />
-            Can't Find Your Name? Tap Here
-          </button>
-        </div>
-      </div>
 
       {/* Toast Banner */}
       {toastMessage && (
@@ -373,13 +334,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
         }}
         onConfirm={handleConfirmCheckIn}
         isCheckingIn={isCheckingIn}
-      />
-
-      {/* New Guest Form Modal */}
-      <NewMemberModal
-        isOpen={isNewMemberOpen}
-        onClose={() => setIsNewMemberOpen(false)}
-        onSubmit={handleNewGuestSubmit}
       />
 
       {/* Admin PIN Exit Modal */}
