@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Calendar,
   Plus,
+  Play,
+  CheckCircle,
   FileSpreadsheet,
-  UserCheck,
+  ChevronDown,
+  ChevronUp,
   X,
-  Check,
-  Search,
+  Clock,
 } from 'lucide-react';
 import type { EventTemplate, Session, Member, AttendanceRecord } from '../types';
 import { db } from '../lib/db';
-import { queueMutation, checkInMemberOptimistic } from '../lib/syncEngine';
+import { queueMutation } from '../lib/syncEngine';
 import { exportSessionCSV } from '../lib/exportUtils';
 
 interface EventManagerProps {
@@ -19,7 +21,10 @@ interface EventManagerProps {
   sessions: Session[];
   members: Member[];
   attendanceRecords: AttendanceRecord[];
+  activeSession: Session | null;
   onRefresh: () => void;
+  onLaunchKiosk: () => void;
+  onCloseSession: (sessionId: string) => Promise<void>;
 }
 
 export const EventManager: React.FC<EventManagerProps> = ({
@@ -28,482 +33,373 @@ export const EventManager: React.FC<EventManagerProps> = ({
   sessions,
   members,
   attendanceRecords,
+  activeSession,
   onRefresh,
+  onLaunchKiosk,
+  onCloseSession,
 }) => {
-  const [isNewEventModalOpen, setIsNewEventModalOpen] = useState(false);
-  const [isNewSessionModalOpen, setIsNewSessionModalOpen] = useState(false);
-  const [managingSession, setManagingSession] = useState<Session | null>(null);
-  const [sessionSearch, setSessionSearch] = useState('');
+  const [isAddEventOpen, setIsAddEventOpen] = useState(false);
+  const [newEventName, setNewEventName] = useState('');
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [manualSearch, setManualSearch] = useState('');
 
-  // Form states
-  const [eventName, setEventName] = useState('');
-  const [eventRecurrence, setEventRecurrence] = useState('weekly:thursday');
+  const activeMembers = useMemo(() => members.filter(m => m.is_active), [members]);
 
-  const [sessionEventId, setSessionEventId] = useState('');
-  const [sessionDate, setSessionDate] = useState(new Date().toISOString().split('T')[0]);
-  const [sessionNotes, setSessionNotes] = useState('');
+  // Sort sessions: active first, then newest
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      if (a.status === 'open' && b.status !== 'open') return -1;
+      if (b.status === 'open' && a.status !== 'open') return 1;
+      return new Date(b.session_date).getTime() - new Date(a.session_date).getTime();
+    });
+  }, [sessions]);
 
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!eventName.trim()) return;
+    if (!newEventName.trim()) return;
 
     const newEv: EventTemplate = {
       id: `e-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       fellowship_id: fellowshipId,
-      name: eventName.trim(),
-      recurrence: eventRecurrence,
+      name: newEventName.trim(),
       is_active: true,
       created_at: new Date().toISOString(),
     };
 
     await db.events.put(newEv);
     await queueMutation('event', 'insert', newEv);
-    setIsNewEventModalOpen(false);
-    setEventName('');
+
+    setIsAddEventOpen(false);
+    setNewEventName('');
     onRefresh();
   };
 
-  const handleCreateSession = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sessionEventId) return;
+  const handleStartSession = async (eventId: string) => {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Check if open session exists
+    const existing = await db.sessions
+      .where('event_id')
+      .equals(eventId)
+      .and(s => s.session_date === today)
+      .first();
+
+    if (existing) {
+      if (existing.status === 'closed') {
+        if (window.confirm('This session was closed earlier today. Reopen it for check-in?')) {
+          await db.sessions.update(existing.id, { status: 'open', closed_at: undefined });
+          await queueMutation('session', 'update', { id: existing.id, status: 'open' });
+          onRefresh();
+          onLaunchKiosk();
+        }
+      } else {
+        onLaunchKiosk();
+      }
+      return;
+    }
 
     const newSess: Session = {
       id: `s-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       fellowship_id: fellowshipId,
-      event_id: sessionEventId,
-      session_date: sessionDate,
+      event_id: eventId,
+      session_date: today,
       status: 'open',
       opened_at: new Date().toISOString(),
-      notes: sessionNotes.trim() || undefined,
     };
 
     await db.sessions.put(newSess);
     await queueMutation('session', 'insert', newSess);
-    setIsNewSessionModalOpen(false);
-    setSessionNotes('');
     onRefresh();
+    onLaunchKiosk();
   };
 
-  const handleToggleSessionStatus = async (session: Session) => {
-    const nextStatus = session.status === 'open' ? 'closed' : 'open';
-    const now = new Date().toISOString();
-    const updated: Session = {
-      ...session,
-      status: nextStatus,
-      closed_at: nextStatus === 'closed' ? now : undefined,
-    };
-
-    await db.sessions.put(updated);
-    await queueMutation('session', 'update', updated);
-    onRefresh();
-  };
-
-  // Toggle admin manual check-in for a member in the selected session
-  const handleToggleMemberAttendance = async (session: Session, memberId: string) => {
-    const existing = attendanceRecords.find(
-      r => r.session_id === session.id && r.member_id === memberId
-    );
+  const handleToggleManualAttendance = async (sessionId: string, memberId: string) => {
+    const existing = await db.attendance_records
+      .where('[session_id+member_id]')
+      .equals([sessionId, memberId])
+      .first();
 
     if (existing) {
       await db.attendance_records.delete(existing.id);
       await queueMutation('attendance_record', 'delete', { id: existing.id });
     } else {
-      await checkInMemberOptimistic(session.id, memberId, 'admin_manual');
+      const record: AttendanceRecord = {
+        id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        session_id: sessionId,
+        member_id: memberId,
+        checked_in_at: new Date().toISOString(),
+        source: 'admin_manual',
+      };
+      await db.attendance_records.put(record);
+      await queueMutation('attendance_record', 'insert', record);
     }
     onRefresh();
   };
 
-  const activeMembers = members.filter(m => m.is_active);
-
   return (
-    <div className="space-y-6">
-      {/* 1. Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl">
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 sm:p-6 rounded-3xl">
         <div>
           <div className="flex items-center gap-2">
             <Calendar className="w-6 h-6 text-emerald-400" />
-            <h2 className="text-xl font-bold text-white">Events & Dated Sessions</h2>
+            <h2 className="text-xl font-extrabold text-white">Services &amp; Gatherings</h2>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Manage recurring event blueprints and open dated attendance sessions.
+          <p className="text-xs text-slate-400 mt-0.5">
+            Start attendance for today's gathering or review past attendance records.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setIsNewEventModalOpen(true)}
-            className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition border border-slate-700"
-          >
-            + New Event Template
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (events.length > 0) setSessionEventId(events[0].id);
-              setIsNewSessionModalOpen(true);
-            }}
-            className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-emerald-950"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Open New Session</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setIsAddEventOpen(true)}
+          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-700 active:scale-95"
+        >
+          <Plus className="w-4 h-4 text-emerald-400" />
+          <span>+ Add Gathering Type</span>
+        </button>
       </div>
 
-      {/* 2. Recurring Event Templates Grid */}
+      {/* Gathering Types Quick Launch Grid */}
       <div>
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">
-          Recurring Event Blueprints
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">
+          Gathering Blueprints
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           {events.map(ev => {
-            const sessionCount = sessions.filter(s => s.event_id === ev.id).length;
+            const isLive = activeSession?.event_id === ev.id;
             return (
               <div
                 key={ev.id}
-                className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between"
+                className={`p-4 rounded-2xl border transition flex flex-col justify-between ${
+                  isLive
+                    ? 'bg-slate-900 border-emerald-500/60 shadow-lg shadow-emerald-950/30'
+                    : 'bg-slate-900 border-slate-800'
+                }`}
               >
                 <div>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <span className="font-bold text-white text-base">{ev.name}</span>
-                    <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] text-slate-400 font-mono">
-                      {ev.recurrence || 'Custom'}
-                    </span>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-extrabold text-white text-base truncate">{ev.name}</span>
+                    {isLive && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950">
+                        LIVE
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-400 mb-3">
-                    {sessionCount} total sessions recorded to date.
-                  </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSessionEventId(ev.id);
-                    setIsNewSessionModalOpen(true);
-                  }}
-                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Launch Session for this Event</span>
-                </button>
+                <div className="pt-3 border-t border-slate-800/80">
+                  {isLive ? (
+                    <button
+                      type="button"
+                      onClick={onLaunchKiosk}
+                      className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Continue Check-in</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleStartSession(ev.id)}
+                      className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-700 active:scale-95"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>Start Today's Attendance</span>
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* 3. Dated Sessions Roster Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-sm">
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-white">Recorded Sessions History</h3>
-            <p className="text-xs text-slate-400">
-              Admin manual add-in allowed for any session, even after closing.
-            </p>
-          </div>
-        </div>
+      {/* Sessions Recorded Timeline */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-sm">
+        <h3 className="text-base font-extrabold text-white mb-4 flex items-center gap-2">
+          <Clock className="w-5 h-5 text-indigo-400" /> Recorded Attendance History
+        </h3>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs sm:text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-[11px] text-slate-400 uppercase tracking-wider bg-slate-950/40">
-                <th className="py-3 px-4 font-semibold">Event Name</th>
-                <th className="py-3 px-4 font-semibold">Date</th>
-                <th className="py-3 px-4 font-semibold">Status</th>
-                <th className="py-3 px-4 font-semibold">Headcount</th>
-                <th className="py-3 px-4 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {sessions.map(session => {
-                const ev = events.find(e => e.id === session.event_id);
-                const attCount = attendanceRecords.filter(r => r.session_id === session.id).length;
-                const pct = activeMembers.length > 0 ? Math.round((attCount / activeMembers.length) * 100) : 0;
+        {sortedSessions.length > 0 ? (
+          <div className="space-y-3">
+            {sortedSessions.map(sess => {
+              const ev = events.find(e => e.id === sess.event_id);
+              const records = attendanceRecords.filter(r => r.session_id === sess.id);
+              const isExpanded = expandedSessionId === sess.id;
+              const isLive = sess.status === 'open';
 
-                return (
-                  <tr key={session.id} className="hover:bg-slate-800/30 transition">
-                    <td className="py-3.5 px-4 font-bold text-white">
-                      <div>{ev?.name || 'Event'}</div>
-                      {session.notes && (
-                        <div className="text-[11px] text-slate-500 font-normal">{session.notes}</div>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-300 font-mono">{session.session_date}</td>
-                    <td className="py-3.5 px-4">
-                      {session.status === 'open' ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                          Live Open
+              const presentMemberIds = new Set(records.map(r => r.member_id));
+
+              return (
+                <div
+                  key={sess.id}
+                  className={`rounded-2xl border transition overflow-hidden ${
+                    isLive
+                      ? 'bg-slate-950 border-emerald-500/40'
+                      : 'bg-slate-950/60 border-slate-800'
+                  }`}
+                >
+                  <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-base">
+                          {ev?.name || 'Fellowship Gathering'}
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400">
-                          Closed
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-white">{attCount}</span>
-                        <span className="text-xs text-slate-500">/ {activeMembers.length} ({pct}%)</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Admin Manual Check-in on this session */}
-                        <button
-                          type="button"
-                          onClick={() => setManagingSession(session)}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-semibold transition inline-flex items-center gap-1 border border-slate-700"
-                          title="Manual Attendance Editor"
-                        >
-                          <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Roster Check</span>
-                        </button>
-
-                        {/* Open / Close toggle */}
-                        <button
-                          type="button"
-                          onClick={() => handleToggleSessionStatus(session)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border ${
-                            session.status === 'open'
-                              ? 'bg-rose-950/40 text-rose-300 border-rose-800/40 hover:bg-rose-900/60'
-                              : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/40 hover:bg-emerald-900/60'
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isLive
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-slate-800 text-slate-400'
                           }`}
                         >
-                          {session.status === 'open' ? 'Close' : 'Re-open'}
-                        </button>
+                          {isLive ? 'Open / In Progress' : 'Closed'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        Date: {sess.session_date} • <strong>{records.length}</strong> of {activeMembers.length} Present ({activeMembers.length > 0 ? Math.round((records.length / activeMembers.length) * 100) : 0}%)
+                      </div>
+                    </div>
 
-                        {/* Export CSV */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => exportSessionCSV(sess, ev?.name || 'Service')}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition"
+                        title="Download CSV Roster"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-teal-400" />
+                        <span className="hidden sm:inline">CSV</span>
+                      </button>
+
+                      {isLive && (
                         <button
                           type="button"
-                          onClick={() => exportSessionCSV(session, ev?.name || 'Session')}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                          title="Download CSV"
+                          onClick={() => onCloseSession(sess.id)}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-rose-300 text-xs font-semibold rounded-xl transition"
                         >
-                          <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                          End
                         </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedSessionId(isExpanded ? null : sess.id)
+                        }
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1 transition"
+                      >
+                        <span>{isExpanded ? 'Hide Roster' : 'View Roster'}</span>
+                        {isExpanded ? (
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Interactive Attendance Roster */}
+                  {isExpanded && (
+                    <div className="p-4 bg-slate-900 border-t border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-bold text-slate-300">
+                          Toggle Attendance Checklist:
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="Filter name..."
+                          value={manualSearch}
+                          onChange={e => setManualSearch(e.target.value)}
+                          className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs"
+                        />
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1">
+                        {activeMembers
+                          .filter(m =>
+                            manualSearch
+                              ? m.full_name.toLowerCase().includes(manualSearch.toLowerCase())
+                              : true
+                          )
+                          .map(m => {
+                            const isPresent = presentMemberIds.has(m.id);
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => handleToggleManualAttendance(sess.id, m.id)}
+                                className={`p-2 rounded-xl text-xs font-medium flex items-center justify-between border transition ${
+                                  isPresent
+                                    ? 'bg-emerald-950/60 border-emerald-700/60 text-emerald-200'
+                                    : 'bg-slate-800/40 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                <span className="truncate">{m.full_name}</span>
+                                <CheckCircle
+                                  className={`w-4 h-4 ml-2 flex-shrink-0 ${
+                                    isPresent ? 'text-emerald-400 fill-emerald-500/20' : 'text-slate-600'
+                                  }`}
+                                />
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-8 text-center bg-slate-950/40 border border-slate-800 rounded-2xl">
+            <p className="text-xs text-slate-400">No attendance sessions recorded yet.</p>
+          </div>
+        )}
       </div>
 
-      {/* Manual Attendance / Roster Editor Modal for any Session */}
-      {managingSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl flex flex-col max-h-[85vh]">
-            <button
-              onClick={() => setManagingSession(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-800 transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="mb-4">
-              <span className="text-[10px] uppercase font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800">
-                Admin Manual Attendance Override
-              </span>
-              <h3 className="text-xl font-bold text-white mt-1">
-                {events.find(e => e.id === managingSession.event_id)?.name} • {managingSession.session_date}
-              </h3>
-              <p className="text-xs text-slate-400">
-                Tap any member to mark present or absent for this specific session.
-              </p>
-            </div>
-
-            {/* Search within session modal */}
-            <div className="relative mb-3">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search member..."
-                value={sessionSearch}
-                onChange={e => setSessionSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs"
-              />
-            </div>
-
-            {/* Members List with quick toggle */}
-            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
-              {activeMembers
-                .filter(m => m.full_name.toLowerCase().includes(sessionSearch.toLowerCase()))
-                .map(member => {
-                  const isPresent = attendanceRecords.some(
-                    r => r.session_id === managingSession.id && r.member_id === member.id
-                  );
-
-                  return (
-                    <button
-                      key={member.id}
-                      type="button"
-                      onClick={() => handleToggleMemberAttendance(managingSession, member.id)}
-                      className={`w-full p-3 rounded-xl border flex items-center justify-between transition ${
-                        isPresent
-                          ? 'bg-emerald-950/30 border-emerald-800 text-emerald-300'
-                          : 'bg-slate-800/40 border-slate-700/60 text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-white">{member.full_name}</div>
-                        <div className="text-[11px] text-slate-500">{member.department || 'General'}</div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {isPresent ? (
-                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center gap-1 border border-emerald-500/40">
-                            <Check className="w-3.5 h-3.5" /> Present
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 text-xs">
-                            Absent (Tap to mark)
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setManagingSession(null)}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition"
-              >
-                Done Editing
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* New Event Modal */}
-      {isNewEventModalOpen && (
+      {/* Add Event Modal */}
+      {isAddEventOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl">
             <button
-              onClick={() => setIsNewEventModalOpen(false)}
+              onClick={() => setIsAddEventOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-800"
             >
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-white mb-4">Create Recurring Event</h3>
+
+            <h3 className="text-lg font-bold text-white mb-4">Add New Gathering Type</h3>
+
             <form onSubmit={handleCreateEvent} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Event Name</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Gathering / Service Name <span className="text-rose-400">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Saturday Youth Fellowship"
-                  value={eventName}
-                  onChange={e => setEventName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm"
+                  placeholder="e.g. Friday Bible Study &amp; Prayer"
+                  value={newEventName}
+                  onChange={e => setNewEventName(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                  autoFocus
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Recurrence Schedule</label>
-                <select
-                  value={eventRecurrence}
-                  onChange={e => setEventRecurrence(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm"
-                >
-                  <option value="weekly:thursday">Every Thursday</option>
-                  <option value="weekly:sunday">Every Sunday</option>
-                  <option value="weekly:monday">Every Monday</option>
-                  <option value="weekly:saturday">Every Saturday</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="ad_hoc">Ad Hoc / Special Gathering</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsNewEventModalOpen(false)}
-                  className="py-2.5 px-4 bg-slate-800 text-slate-300 rounded-xl text-xs"
+                  onClick={() => setIsAddEventOpen(false)}
+                  className="py-2.5 px-4 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="py-2.5 px-4 bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg"
+                  className="py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl text-xs shadow-lg shadow-emerald-950"
                 >
-                  Create Event
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* New Session Modal */}
-      {isNewSessionModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl">
-            <button
-              onClick={() => setIsNewSessionModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="text-lg font-bold text-white mb-4">Open New Attendance Session</h3>
-            <form onSubmit={handleCreateSession} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Select Event</label>
-                <select
-                  value={sessionEventId}
-                  onChange={e => setSessionEventId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm"
-                >
-                  {events.map(ev => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Session Date</label>
-                <input
-                  type="date"
-                  required
-                  value={sessionDate}
-                  onChange={e => setSessionDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Notes / Theme (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Communion & Thanksgiving"
-                  value={sessionNotes}
-                  onChange={e => setSessionNotes(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsNewSessionModalOpen(false)}
-                  className="py-2.5 px-4 bg-slate-800 text-slate-300 rounded-xl text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="py-2.5 px-4 bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg"
-                >
-                  Open Session Now
+                  Create Gathering
                 </button>
               </div>
             </form>
