@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserPlus, X, Send } from 'lucide-react';
+import { UserPlus, X, Check } from 'lucide-react';
 
 interface NewMemberModalProps {
   isOpen: boolean;
@@ -12,87 +12,73 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const [name, setName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setError('Please enter your full name');
-      return;
-    }
-    setError('');
+    if (!fullName.trim()) return;
+
     setIsSubmitting(true);
     try {
-      await onSubmit(name, phone);
-      setName('');
+      await onSubmit(fullName.trim(), phone.trim() || undefined);
+      setFullName('');
       setPhone('');
       onClose();
-    } catch (err) {
-      setError('Failed to submit. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-2 rounded-full hover:bg-slate-800 transition"
-          aria-label="Close"
+          className="absolute top-5 right-5 text-zinc-400 hover:text-white p-2 rounded-full hover:bg-zinc-800 transition"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="w-16 h-16 mx-auto mb-4 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-2xl flex items-center justify-center">
-          <UserPlus className="w-8 h-8" />
-        </div>
-
-        <h3 className="text-xl font-bold text-center text-white mb-1">
-          Welcome! Can't find your name?
-        </h3>
-        <p className="text-slate-400 text-xs text-center mb-5">
-          Enter your details below to check in today. An administrator will verify and add you to the registry.
-        </p>
-
-        {error && (
-          <div className="mb-4 p-3 bg-rose-950/60 border border-rose-800/50 rounded-xl text-rose-300 text-xs text-center">
-            {error}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-yellow-400/10 text-yellow-400 flex items-center justify-center border border-yellow-400/30">
+            <UserPlus className="w-6 h-6" />
           </div>
-        )}
+          <div>
+            <h3 className="text-xl font-black text-white">Guest Check-In</h3>
+            <p className="text-xs text-zinc-400">Welcome! Enter your details to check in.</p>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Full Name <span className="text-rose-400">*</span>
+            <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+              Your Full Name <span className="text-yellow-400">*</span>
             </label>
             <input
               type="text"
               required
-              placeholder="e.g. Oluwatimileyin Isaiah"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="e.g. Samuel Oladipo"
+              value={fullName}
+              onChange={e => setFullName(e.target.value)}
+              className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
               autoFocus
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Phone Number <span className="text-slate-500 font-normal">(Optional, for follow-up)</span>
+            <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+              Phone Number <span className="text-zinc-500 font-normal">(Optional)</span>
             </label>
             <input
               type="tel"
-              placeholder="e.g. +234 802 345 6789"
+              placeholder="e.g. +234 803 123 4567"
               value={phone}
               onChange={e => setPhone(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
             />
           </div>
 
@@ -100,17 +86,17 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition text-sm"
+              className="py-3 px-4 bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-300 rounded-2xl font-bold transition text-xs cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="py-3 px-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-2 text-sm shadow-lg shadow-indigo-950"
+              className="py-3 px-4 bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black rounded-2xl font-black transition flex items-center justify-center gap-1.5 text-xs shadow-lg shadow-yellow-950/40 cursor-pointer"
             >
-              <Send className="w-4 h-4" />
-              {isSubmitting ? 'Submitting...' : 'Check In Now'}
+              <Check className="w-4 h-4" />
+              <span>{isSubmitting ? 'Checking in...' : 'Check In'}</span>
             </button>
           </div>
         </form>

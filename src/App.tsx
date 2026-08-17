@@ -4,6 +4,7 @@ import { db } from './lib/db';
 import { initializeSeedData, DEFAULT_FELLOWSHIP_ID } from './lib/seedData';
 import { flushSyncQueue, computeInactivityAlerts, type NetworkStatus } from './lib/syncEngine';
 import { Navbar, type MainTab } from './components/Navbar';
+import { LoginView } from './components/LoginView';
 import { KioskCheckIn } from './components/KioskCheckIn';
 import { EventsView } from './components/EventsView';
 import { MemberManagement } from './components/MemberManagement';
@@ -13,6 +14,7 @@ import type { InactivityAlert } from './types';
 
 export function App() {
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<MainTab>('events');
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [inactivityThreshold, setInactivityThreshold] = useState(3);
@@ -22,9 +24,20 @@ export function App() {
   );
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Initialize clean state
+  // Initialize clean state & clear any previous mock events
   useEffect(() => {
-    initializeSeedData().then(() => {
+    initializeSeedData().then(async () => {
+      // Purge any legacy default event IDs if they existed in previous sessions
+      const legacyMockEvents = await db.events
+        .where('id')
+        .anyOf(['e0000001-0000-0000-0000-000000000001', 'e0000002-0000-0000-0000-000000000002'])
+        .toArray();
+      if (legacyMockEvents.length > 0) {
+        await db.events
+          .where('id')
+          .anyOf(['e0000001-0000-0000-0000-000000000001', 'e0000002-0000-0000-0000-000000000002'])
+          .delete();
+      }
       setIsInitialized(true);
     });
 
@@ -92,14 +105,14 @@ export function App() {
 
   if (!isInitialized) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white">
-        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-semibold text-slate-300">Loading Fellowship...</p>
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-white">
+        <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-bold text-zinc-300">Loading Fellowship...</p>
       </div>
     );
   }
 
-  // 1. KIOSK MODE: Circulating Phone Pass-the-Phone Check-in
+  // 1. KIOSK MODE: Pass-the-Phone Circulating Check-in
   if (isKioskMode) {
     return (
       <KioskCheckIn
@@ -114,9 +127,22 @@ export function App() {
     );
   }
 
-  // 2. CLEAN, MINIMAL ADMIN APP
+  // 2. LOGIN / SETUP SCREEN: Comes before the admin dashboard
+  if (!isLoggedIn) {
+    return (
+      <LoginView
+        fellowship={fellowship || null}
+        activeSession={activeSession}
+        activeEvent={activeEvent}
+        onLoginSuccess={() => setIsLoggedIn(true)}
+        onLaunchKioskDirect={() => setIsKioskMode(true)}
+      />
+    );
+  }
+
+  // 3. ADMIN HUB: Black & Yellow Theme with Event-First Flow
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-slate-950">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-yellow-400 selection:text-black">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -125,9 +151,10 @@ export function App() {
         onLaunchKiosk={() => setIsKioskMode(true)}
         networkStatus={networkStatus}
         fellowshipName={fellowship?.name || 'My Fellowship'}
+        onLogout={() => setIsLoggedIn(false)}
       />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-12">
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-12">
         {activeTab === 'events' && (
           <EventsView
             fellowshipId={DEFAULT_FELLOWSHIP_ID}
