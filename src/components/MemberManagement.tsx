@@ -151,11 +151,11 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   }, [viewingProfileMember, attendanceRecords, sessions]);
 
   return (
-    <div className="space-y-5 max-w-3xl mx-auto pb-16 animate-in fade-in">
+    <div className="space-y-6 w-full pb-16 animate-in fade-in">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-white">People &amp; Roster</h2>
+          <h2 className="text-2xl font-black text-white">People &amp; Roster</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''} on list
           </p>
@@ -164,7 +164,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
+          className="px-5 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
           <span>+ Add Member</span>
@@ -172,7 +172,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-zinc-900 border border-zinc-800 p-3 sm:p-4 rounded-3xl space-y-3">
+      <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {/* Search box */}
           <div className="relative sm:col-span-2">
@@ -227,8 +227,8 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         </div>
       </div>
 
-      {/* Members List */}
-      <div className="space-y-2">
+      {/* Members Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {filteredMembers.length > 0 ? (
           filteredMembers.map(member => (
             <div

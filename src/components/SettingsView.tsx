@@ -60,9 +60,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto pb-16 animate-in fade-in">
+    <div className="space-y-6 w-full max-w-4xl pb-16 animate-in fade-in">
       <div>
-        <h2 className="text-xl font-black text-white">Settings &amp; Reports</h2>
+        <h2 className="text-2xl font-black text-white">Settings &amp; Reports</h2>
         <p className="text-xs text-zinc-400 mt-0.5">
           Manage your organization name, PIN, and download master attendance.
         </p>

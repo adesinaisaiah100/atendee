@@ -192,7 +192,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
     const isLive = activeSession?.event_id === selectedEvent.id;
 
     return (
-      <div className="space-y-6 max-w-3xl mx-auto pb-16 animate-in fade-in">
+      <div className="space-y-6 w-full pb-16 animate-in fade-in">
         {/* Top Action Bar */}
         <div className="flex items-center justify-between gap-3">
           <button
@@ -418,11 +418,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
   // VIEW 2: ALL EVENTS LIST (Home Screen Entry Point)
   // ==========================================
   return (
-    <div className="space-y-6 max-w-3xl mx-auto pb-16">
+    <div className="space-y-6 w-full pb-16">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-white">Events &amp; Gatherings</h2>
+          <h2 className="text-2xl font-black text-white">Events &amp; Gatherings</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             Select an event to start attendance or view past records.
           </p>
@@ -431,7 +431,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
         <button
           type="button"
           onClick={() => setIsCreateModalOpen(true)}
-          className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
+          className="px-5 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>+ Create Event</span>
@@ -440,7 +440,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
       {/* Events Cards Grid */}
       {events.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {events.map(ev => {
             const evSessions = sessions.filter(s => s.event_id === ev.id);
             const isLive = activeSession?.event_id === ev.id;

@@ -28,11 +28,11 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
   });
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto pb-16 animate-in fade-in">
+    <div className="space-y-6 w-full pb-16 animate-in fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-white">Missing Members</h2>
+          <h2 className="text-2xl font-black text-white">Missing Members</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             Follow up with members who missed recent services.
           </p>
@@ -77,7 +77,7 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
 
       {/* Missing Members List */}
       {filteredAlerts.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAlerts.map(alert => (
             <div
               key={alert.member.id}
