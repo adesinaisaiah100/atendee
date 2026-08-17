@@ -28,6 +28,8 @@ interface EventsViewProps {
   onRefresh: () => void;
   onLaunchKiosk: () => void;
   onCloseSession: (sessionId: string) => Promise<void>;
+  isCreateModalOpen?: boolean;
+  setIsCreateModalOpen?: (open: boolean) => void;
 }
 
 export const EventsView: React.FC<EventsViewProps> = ({
@@ -40,12 +42,20 @@ export const EventsView: React.FC<EventsViewProps> = ({
   onRefresh,
   onLaunchKiosk,
   onCloseSession,
+  isCreateModalOpen: controlledCreateOpen,
+  setIsCreateModalOpen: setControlledCreateOpen,
 }) => {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [internalCreateOpen, setInternalCreateOpen] = useState(false);
   const [newEventName, setNewEventName] = useState('');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [searchRoster, setSearchRoster] = useState('');
+
+  const isCreateModalOpen = controlledCreateOpen !== undefined ? controlledCreateOpen : internalCreateOpen;
+  const setIsCreateModalOpen = (open: boolean) => {
+    if (setControlledCreateOpen) setControlledCreateOpen(open);
+    else setInternalCreateOpen(open);
+  };
 
   const activeMembers = useMemo(() => members.filter(m => m.is_active), [members]);
 

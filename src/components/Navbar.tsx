@@ -3,7 +3,7 @@ import {
   Users,
   Calendar,
   HeartHandshake,
-  Smartphone,
+  Plus,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -15,8 +15,7 @@ interface NavbarProps {
   activeTab: MainTab;
   setActiveTab: (tab: MainTab) => void;
   missingCount: number;
-  hasActiveSession: boolean;
-  onLaunchKiosk: () => void;
+  onCreateEvent: () => void;
   fellowshipName: string;
   onLogout: () => void;
 }
@@ -25,8 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   missingCount,
-  hasActiveSession,
-  onLaunchKiosk,
+  onCreateEvent,
   fellowshipName,
   onLogout,
 }) => {
@@ -89,18 +87,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               })}
             </nav>
 
-            {/* Right Actions */}
+            {/* Right Actions: + Create Event Button & Logout */}
             <div className="flex items-center gap-3">
-              {hasActiveSession && (
-                <button
-                  type="button"
-                  onClick={onLaunchKiosk}
-                  className="bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black font-black text-xs sm:text-sm px-4 py-2.5 rounded-xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 cursor-pointer"
-                >
-                  <Smartphone className="w-4 h-4" />
-                  <span>Pass Phone</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={onCreateEvent}
+                className="bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black font-black text-xs sm:text-sm px-4 py-2.5 rounded-xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Create Event</span>
+              </button>
 
               <button
                 type="button"

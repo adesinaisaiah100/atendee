@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Users,
   UserPlus,
@@ -10,10 +10,16 @@ import {
   BarChart2,
   X,
   Check,
+  FileSpreadsheet,
+  Upload,
+  Download,
+  AlertCircle,
+  FileCheck,
 } from 'lucide-react';
 import type { Member, AttendanceRecord, Session } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { parseMembersFile, downloadSampleCSVTemplate, type ParseResult } from '../lib/importUtils';
 
 interface MemberManagementProps {
   fellowshipId: string;
@@ -41,13 +47,22 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [viewingProfileMember, setViewingProfileMember] = useState<Member | null>(null);
 
+  // Import Excel / CSV state
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+  const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const isModalOpen = controlledAddOpen !== undefined ? controlledAddOpen : internalAddOpen;
   const setIsModalOpen = (open: boolean) => {
     if (setControlledAddOpen) setControlledAddOpen(open);
     else setInternalAddOpen(open);
   };
 
-  // Simplified form
+  // Manual Add Form
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [department, setDepartment] = useState('General');
@@ -134,7 +149,67 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
     }
   };
 
-  // Compute stats for modal
+  // Excel / CSV File Drop & Parse
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportFile(file);
+    setIsParsing(true);
+    try {
+      const existingNames = new Set(members.map(m => m.full_name.toLowerCase()));
+      const res = await parseMembersFile(file, existingNames);
+      setParseResult(res);
+    } catch (err) {
+      console.error('Error parsing file:', err);
+      alert('Could not parse the selected file. Please make sure it is a valid Excel or CSV file.');
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleBulkImportSubmit = async () => {
+    if (!parseResult || parseResult.valid.length === 0) return;
+    setIsImporting(true);
+
+    try {
+      const newMembers: Member[] = parseResult.valid.map((r, i) => ({
+        id: `m-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 7)}`,
+        fellowship_id: fellowshipId,
+        full_name: r.full_name,
+        phone: r.phone,
+        department: r.department || 'General',
+        joined_at: new Date().toISOString().split('T')[0],
+        is_active: true,
+        created_at: new Date().toISOString(),
+      }));
+
+      // Bulk write to local Dexie IndexedDB
+      await db.members.bulkPut(newMembers);
+
+      // Queue mutations for cloud Supabase sync
+      for (const m of newMembers) {
+        await queueMutation('member', 'insert', m);
+      }
+
+      setImportSuccessMsg(`Successfully imported ${newMembers.length} new members!`);
+      setTimeout(() => {
+        setImportSuccessMsg(null);
+        setIsImportModalOpen(false);
+        setImportFile(null);
+        setParseResult(null);
+      }, 2000);
+
+      onRefresh();
+    } catch (err) {
+      console.error('Error bulk importing:', err);
+      alert('An error occurred during import. Please try again.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Compute stats for single member scorecard modal
   const profileStats = useMemo(() => {
     if (!viewingProfileMember) return null;
     const memberAtt = attendanceRecords.filter(r => r.member_id === viewingProfileMember.id);
@@ -152,8 +227,8 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
 
   return (
     <div className="space-y-6 w-full pb-16 animate-in fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      {/* Header with Add & Import buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-white">People &amp; Roster</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
@@ -161,14 +236,31 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenAdd}
-          className="px-5 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>+ Add Member</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Import Excel / CSV Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setImportFile(null);
+              setParseResult(null);
+              setIsImportModalOpen(true);
+            }}
+            className="px-4 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white font-bold text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 border border-zinc-800 active:scale-95 cursor-pointer shadow-sm"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-yellow-400" />
+            <span>Import Excel / CSV</span>
+          </button>
+
+          {/* Manual Add Member Button */}
+          <button
+            type="button"
+            onClick={handleOpenAdd}
+            className="px-5 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>+ Add Member</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -233,7 +325,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
           filteredMembers.map(member => (
             <div
               key={member.id}
-              className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 p-3.5 sm:p-4 rounded-2xl transition flex items-center justify-between gap-3 shadow-sm"
+              className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 p-4 rounded-2xl transition flex items-center justify-between gap-3 shadow-sm"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div
@@ -270,7 +362,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => setViewingProfileMember(member)}
-                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-yellow-400 transition"
+                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-yellow-400 transition cursor-pointer"
                   title="View Attendance Consistency"
                 >
                   <BarChart2 className="w-4 h-4" />
@@ -279,7 +371,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => handleOpenEdit(member)}
-                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
+                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
                   title="Edit Profile"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -288,7 +380,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                 <button
                   type="button"
                   onClick={() => handleToggleActive(member)}
-                  className={`p-2 rounded-xl transition ${
+                  className={`p-2 rounded-xl transition cursor-pointer ${
                     member.is_active
                       ? 'bg-zinc-800 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300'
                       : 'bg-zinc-800 hover:bg-yellow-950/60 text-zinc-400 hover:text-yellow-400'
@@ -305,24 +397,210 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
             </div>
           ))
         ) : (
-          <div className="p-10 text-center bg-zinc-900 border border-zinc-800 rounded-3xl">
+          <div className="col-span-full p-10 text-center bg-zinc-900 border border-zinc-800 rounded-3xl">
             <Users className="w-10 h-10 mx-auto mb-2 text-zinc-600" />
             <h3 className="text-base font-bold text-white mb-1">No Members Found</h3>
-            <p className="text-xs text-zinc-400 mb-4">
-              Add your first member to build your fellowship roster.
+            <p className="text-xs text-zinc-400 mb-5">
+              Add your first member or import your church spreadsheet.
             </p>
-            <button
-              type="button"
-              onClick={handleOpenAdd}
-              className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition shadow"
-            >
-              + Add Member Now
-            </button>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-yellow-400" />
+                <span>Import Spreadsheet</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenAdd}
+                className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition shadow cursor-pointer"
+              >
+                + Add Member Now
+              </button>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Add / Edit Member Modal */}
+      {/* 1. EXCEL / CSV IMPORT MODAL */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
+            <button
+              onClick={() => {
+                setIsImportModalOpen(false);
+                setImportFile(null);
+                setParseResult(null);
+              }}
+              className="absolute top-5 right-5 text-zinc-400 hover:text-white p-2 rounded-full hover:bg-zinc-800 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div>
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-yellow-400" />
+                <span>Import Members from Excel / CSV</span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                Upload your church roster sheet (.xlsx, .xls, or .csv) to bulk import members.
+              </p>
+            </div>
+
+            {/* Template Download Banner */}
+            <div className="bg-zinc-950 border border-zinc-800 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs">
+              <span className="text-zinc-300">Need a format guide?</span>
+              <button
+                type="button"
+                onClick={downloadSampleCSVTemplate}
+                className="text-yellow-400 hover:underline font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Sample Sheet</span>
+              </button>
+            </div>
+
+            {/* File Dropzone */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition ${
+                importFile
+                  ? 'border-yellow-400/50 bg-yellow-950/10'
+                  : 'border-zinc-700 hover:border-zinc-500 bg-zinc-950/60'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx, .xls, .csv"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+
+              {importFile ? (
+                <div className="space-y-1">
+                  <FileCheck className="w-8 h-8 text-yellow-400 mx-auto" />
+                  <div className="text-sm font-bold text-white truncate max-w-xs mx-auto">
+                    {importFile.name}
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    {(importFile.size / 1024).toFixed(1)} KB • Tap to choose a different file
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Upload className="w-8 h-8 text-zinc-500 mx-auto" />
+                  <div className="text-sm font-bold text-zinc-200">
+                    Click to browse or drop file here
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    Supports Excel (.xlsx, .xls) and CSV (.csv)
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Parse Status / Preview */}
+            {isParsing && (
+              <div className="p-4 text-center text-xs text-yellow-400 font-bold animate-pulse">
+                Reading and parsing spreadsheet...
+              </div>
+            )}
+
+            {parseResult && (
+              <div className="space-y-3 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-zinc-900 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-zinc-400 block">Ready to Import</span>
+                    <span className="text-lg font-black text-yellow-400">
+                      {parseResult.valid.length}
+                    </span>
+                  </div>
+                  <div className="bg-zinc-900 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-zinc-400 block">Duplicates Skipped</span>
+                    <span className="text-lg font-black text-zinc-300">
+                      {parseResult.duplicates}
+                    </span>
+                  </div>
+                  <div className="bg-zinc-900 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-zinc-400 block">Empty/Skipped</span>
+                    <span className="text-lg font-black text-zinc-400">
+                      {parseResult.errors}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Preview First Few Rows */}
+                {parseResult.valid.length > 0 && (
+                  <div className="pt-2">
+                    <span className="text-[11px] text-zinc-400 font-semibold block mb-1.5">
+                      Preview (First {Math.min(3, parseResult.valid.length)} rows):
+                    </span>
+                    <div className="space-y-1">
+                      {parseResult.valid.slice(0, 3).map((r, idx) => (
+                        <div
+                          key={idx}
+                          className="text-xs bg-zinc-900/80 px-3 py-1.5 rounded-lg flex items-center justify-between text-zinc-300"
+                        >
+                          <span className="font-bold text-white">{r.full_name}</span>
+                          <span className="text-zinc-400">{r.phone || 'No phone'}</span>
+                          <span className="text-yellow-400/90 text-[11px] font-semibold">{r.department}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {parseResult.valid.length === 0 && (
+                  <div className="p-3 bg-amber-950/40 border border-amber-800/40 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>No new valid names found in this file (all rows were empty or already exist in your roster).</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {importSuccessMsg && (
+              <div className="p-3 bg-yellow-950/60 border border-yellow-800/50 rounded-xl text-yellow-300 text-xs font-bold flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                <span>{importSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportFile(null);
+                  setParseResult(null);
+                }}
+                className="py-3 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl font-bold text-xs transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkImportSubmit}
+                disabled={!parseResult || parseResult.valid.length === 0 || isImporting}
+                className={`py-3 px-4 rounded-xl font-black text-xs transition flex items-center justify-center gap-1.5 shadow-lg ${
+                  parseResult && parseResult.valid.length > 0 && !isImporting
+                    ? 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-yellow-950/40 cursor-pointer'
+                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                <span>{isImporting ? 'Importing...' : `Import ${parseResult ? parseResult.valid.length : ''} Members`}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. MANUAL ADD / EDIT MEMBER MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
@@ -406,7 +684,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         </div>
       )}
 
-      {/* Attendance Stats Scorecard Modal */}
+      {/* 3. ATTENDANCE STATS SCORECARD MODAL */}
       {viewingProfileMember && profileStats && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl">

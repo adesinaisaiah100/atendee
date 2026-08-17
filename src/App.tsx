@@ -17,6 +17,7 @@ export function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<MainTab>('events');
   const [isKioskMode, setIsKioskMode] = useState(false);
+  const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
   const [inactivityThreshold, setInactivityThreshold] = useState(3);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
   // Initialize clean state & clear any previous mock events
@@ -123,8 +124,10 @@ export function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         missingCount={inactivityAlerts.length}
-        hasActiveSession={Boolean(activeSession)}
-        onLaunchKiosk={() => setIsKioskMode(true)}
+        onCreateEvent={() => {
+          setActiveTab('events');
+          setIsCreateEventOpen(true);
+        }}
         fellowshipName={fellowship?.name || 'My Fellowship'}
         onLogout={() => setIsLoggedIn(false)}
       />
@@ -141,6 +144,8 @@ export function App() {
             onRefresh={() => {}}
             onLaunchKiosk={() => setIsKioskMode(true)}
             onCloseSession={handleCloseSession}
+            isCreateModalOpen={isCreateEventOpen}
+            setIsCreateModalOpen={setIsCreateEventOpen}
           />
         )}
 
