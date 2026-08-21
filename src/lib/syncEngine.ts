@@ -1,6 +1,7 @@
 import { db } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
-import type { AttendanceRecord, PendingMember, InactivityAlert, Member } from '../types';
+import { generateUniqueCode } from './codeGenerator';
+import type { AttendanceRecord, PendingMember, InactivityAlert, Member, AttendanceSource } from '../types';
 
 export type NetworkStatus = 'online' | 'offline' | 'syncing';
 
@@ -60,7 +61,7 @@ export async function flushSyncQueue(): Promise<{ syncedCount: number; errors: a
 export async function checkInMemberOptimistic(
   sessionId: string,
   memberId: string,
-  source: 'self' | 'admin_manual' = 'self'
+  source: AttendanceSource = 'self'
 ): Promise<AttendanceRecord> {
   const recordId = `a-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const record: AttendanceRecord = {
@@ -151,7 +152,10 @@ export async function resolvePendingMemberAction(
   }
 
   if (resolution === 'create_new' && newMemberData?.full_name) {
-    const newMemberId = `m-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newMemberId = crypto.randomUUID();
+    const fellowship = await db.fellowships.get(pending.fellowship_id);
+    const code = await generateUniqueCode(pending.fellowship_id, fellowship?.name || 'Fellowship');
+
     const newMember: Member = {
       id: newMemberId,
       fellowship_id: pending.fellowship_id,
@@ -159,6 +163,7 @@ export async function resolvePendingMemberAction(
       phone: newMemberData.phone || pending.phone,
       gender: newMemberData.gender || 'other',
       department: newMemberData.department || 'General',
+      check_in_code: code,
       joined_at: new Date().toISOString().split('T')[0],
       is_active: true,
       created_at: new Date().toISOString(),

@@ -19,10 +19,12 @@ import {
 import type { Member, AttendanceRecord, Session } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { generateUniqueCode, generateBatchCodes } from '../lib/codeGenerator';
 import { parseMembersFile, downloadSampleCSVTemplate, type ParseResult } from '../lib/importUtils';
 
 interface MemberManagementProps {
   fellowshipId: string;
+  fellowshipName: string;
   members: Member[];
   attendanceRecords: AttendanceRecord[];
   sessions: Session[];
@@ -33,6 +35,7 @@ interface MemberManagementProps {
 
 export const MemberManagement: React.FC<MemberManagementProps> = ({
   fellowshipId,
+  fellowshipName,
   members,
   attendanceRecords,
   sessions,
@@ -80,7 +83,8 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
           return (
             m.full_name.toLowerCase().includes(q) ||
             (m.phone && m.phone.includes(q)) ||
-            (m.department && m.department.toLowerCase().includes(q))
+            (m.department && m.department.toLowerCase().includes(q)) ||
+            (m.check_in_code && m.check_in_code.toLowerCase().includes(q))
           );
         }
         return true;
@@ -118,12 +122,14 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
       await db.members.put(updated);
       await queueMutation('member', 'update', updated);
     } else {
+      const code = await generateUniqueCode(fellowshipId, fellowshipName);
       const newMember: Member = {
-        id: `m-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: crypto.randomUUID(),
         fellowship_id: fellowshipId,
         full_name: fullName.trim(),
         phone: phone.trim() || undefined,
         department,
+        check_in_code: code,
         joined_at: new Date().toISOString().split('T')[0],
         is_active: true,
         created_at: new Date().toISOString(),
@@ -173,12 +179,16 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
     setIsImporting(true);
 
     try {
+      // Generate unique codes for all imported members at once
+      const codes = await generateBatchCodes(fellowshipId, fellowshipName, parseResult.valid.length);
+
       const newMembers: Member[] = parseResult.valid.map((r, i) => ({
-        id: `m-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 7)}`,
+        id: crypto.randomUUID(),
         fellowship_id: fellowshipId,
         full_name: r.full_name,
         phone: r.phone,
         department: r.department || 'General',
+        check_in_code: codes[i],
         joined_at: new Date().toISOString().split('T')[0],
         is_active: true,
         created_at: new Date().toISOString(),
@@ -271,7 +281,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
             <input
               type="text"
-              placeholder="Search by name, phone..."
+              placeholder="Search by name, phone, or code..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white placeholder-zinc-500 text-xs font-medium focus:outline-none transition"
@@ -350,8 +360,13 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                     <span className="text-zinc-300 font-medium">
                       {member.department || 'General'}
                     </span>
+                    {member.check_in_code && (
+                      <span className="px-1.5 py-0.5 rounded bg-yellow-400/10 text-yellow-400 text-[10px] font-mono font-bold border border-yellow-400/20">
+                        {member.check_in_code}
+                      </span>
+                    )}
                     {member.phone && (
-                      <span className="text-zinc-500">• {member.phone}</span>
+                      <span className="text-zinc-500 hidden sm:inline">• {member.phone}</span>
                     )}
                   </div>
                 </div>

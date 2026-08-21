@@ -13,6 +13,7 @@ import { AdminPinModal } from './AdminPinModal';
 import { AtendeeLogo } from './AtendeeLogo';
 import type { Member, Session, EventTemplate, AttendanceRecord } from '../types';
 import { checkInMemberOptimistic } from '../lib/syncEngine';
+import { findMemberByCode } from '../lib/codeGenerator';
 
 interface KioskCheckInProps {
   session: Session | null;
@@ -37,6 +38,8 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   const [isPinOpen, setIsPinOpen] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [codeInput, setCodeInput] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
 
   // Set of checked in member IDs for this specific session
   const checkedInMap = useMemo(() => {
@@ -110,6 +113,41 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
       console.error(err);
     } finally {
       setIsCheckingIn(false);
+    }
+  };
+
+  const handleCodeCheckIn = async () => {
+    if (!codeInput.trim() || !session) return;
+    setCodeError(null);
+
+    try {
+      const member = await findMemberByCode(codeInput);
+
+      if (!member) {
+        setCodeError('Code not found. Please check and try again.');
+        return;
+      }
+
+      if (checkedInMap.has(member.id)) {
+        setCodeError("You're already checked in!");
+        return;
+      }
+
+      await checkInMemberOptimistic(session.id, member.id, 'code');
+
+      confetti({
+        particleCount: 70,
+        spread: 65,
+        origin: { y: 0.8 },
+        colors: ['#facc15', '#f59e0b', '#fbbf24', '#ffffff'],
+      });
+
+      showToast(`🎉 Checked in: ${member.full_name}`);
+      setCodeInput('');
+      setCodeError(null);
+    } catch (err) {
+      console.error(err);
+      setCodeError('Something went wrong. Please try again.');
     }
   };
 
@@ -194,6 +232,47 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
               style={{ width: `${Math.min(100, percentAttended)}%` }}
             />
           </div>
+        </div>
+
+        {/* Code Entry Section */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 mb-4 shadow-sm">
+          <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wide mb-2">
+            Quick Check-in with Code
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              placeholder="Enter your code e.g. GRACE-1234"
+              value={codeInput}
+              onChange={e => {
+                setCodeInput(e.target.value.toUpperCase());
+                setCodeError(null);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleCodeCheckIn();
+              }}
+              className="flex-1 px-4 py-3.5 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white placeholder-zinc-500 text-base font-mono font-bold text-center uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-yellow-400/20"
+            />
+            <button
+              onClick={handleCodeCheckIn}
+              disabled={!codeInput.trim()}
+              className="px-6 py-3.5 bg-yellow-400 hover:bg-yellow-300 disabled:bg-zinc-700 disabled:text-zinc-500 text-black font-black rounded-xl transition shadow-sm cursor-pointer disabled:cursor-not-allowed"
+            >
+              Check In
+            </button>
+          </div>
+          {codeError && (
+            <p className="mt-2 text-sm font-semibold text-red-400">{codeError}</p>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1 h-px bg-zinc-800" />
+          <span className="text-xs text-zinc-500 font-semibold whitespace-nowrap">
+            or tap your name below
+          </span>
+          <div className="flex-1 h-px bg-zinc-800" />
         </div>
 
         {/* Search Bar */}

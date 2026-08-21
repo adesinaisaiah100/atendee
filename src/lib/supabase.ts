@@ -19,11 +19,13 @@ export const SUPABASE_SQL_SCHEMA = `-- =========================================
 
 -- 1. Organizations / Fellowships
 CREATE TABLE IF NOT EXISTS fellowships (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL DEFAULT 'fellowship2026',
-  pin_code      VARCHAR(4) NOT NULL DEFAULT '1234',
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           TEXT NOT NULL UNIQUE,
+  slug           TEXT UNIQUE,
+  password_hash  TEXT NOT NULL DEFAULT 'fellowship2026',
+  pin_code       VARCHAR(4) NOT NULL DEFAULT '1234',
+  recovery_email TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 2. Known Members
@@ -34,11 +36,13 @@ CREATE TABLE IF NOT EXISTS members (
   phone          TEXT,
   gender         TEXT CHECK (gender IN ('male', 'female', 'other')),
   department     TEXT,
+  check_in_code  VARCHAR(16),
   joined_at      DATE NOT NULL DEFAULT current_date,
   is_active      BOOLEAN NOT NULL DEFAULT true,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_members_fellowship ON members(fellowship_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_members_code ON members(check_in_code);
 
 -- 3. Event Templates (Recurring)
 CREATE TABLE IF NOT EXISTS events (
@@ -70,7 +74,7 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   session_id    UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   member_id     UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  source        TEXT NOT NULL DEFAULT 'self' CHECK (source IN ('self', 'admin_manual')),
+  source        TEXT NOT NULL DEFAULT 'self' CHECK (source IN ('self', 'admin_manual', 'code')),
   UNIQUE (session_id, member_id)
 );
 CREATE INDEX IF NOT EXISTS idx_attendance_session_member ON attendance_records(session_id, member_id);

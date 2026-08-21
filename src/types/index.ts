@@ -1,13 +1,15 @@
 export type Gender = 'male' | 'female' | 'other';
 export type SessionStatus = 'open' | 'closed';
-export type AttendanceSource = 'self' | 'admin_manual';
+export type AttendanceSource = 'self' | 'admin_manual' | 'code';
 export type PendingStatus = 'pending' | 'merged' | 'deleted';
 export type SyncStatus = 'synced' | 'pending_sync' | 'error';
 
 export interface Fellowship {
   id: string;
   name: string;
+  slug: string; // URL-safe identifier e.g. "grace-assembly"
   pin_code: string; // 4-digit PIN for kiosk lock
+  recovery_email?: string; // For admin PIN recovery
   created_at: string;
 }
 
@@ -17,7 +19,8 @@ export interface Member {
   full_name: string;
   phone?: string;
   gender?: Gender;
-  department?: string; // Optional fellowship department (Choir, Ushering, Media, etc.)
+  department?: string;
+  check_in_code: string; // Unique code e.g. "GRACE-4827"
   joined_at: string;
   is_active: boolean;
   created_at: string;
@@ -26,8 +29,8 @@ export interface Member {
 export interface EventTemplate {
   id: string;
   fellowship_id: string;
-  name: string; // e.g. "Thursday Communion Mass", "Sunday Service", "Monday Prayer"
-  recurrence?: string; // e.g. "weekly:thursday", "weekly:sunday"
+  name: string;
+  recurrence?: string;
   is_active: boolean;
   created_at: string;
 }
@@ -36,7 +39,7 @@ export interface Session {
   id: string;
   fellowship_id: string;
   event_id: string;
-  session_date: string; // YYYY-MM-DD
+  session_date: string;
   status: SessionStatus;
   opened_at: string;
   closed_at?: string;
@@ -68,7 +71,7 @@ export interface PendingMember {
 export interface Term {
   id: string;
   fellowship_id: string;
-  name: string; // e.g. "2026 First Semester", "Harmattan Quarter 2026"
+  name: string;
   start_date: string;
   end_date: string;
   created_at: string;
@@ -76,7 +79,7 @@ export interface Term {
 
 export interface SyncQueueItem {
   id?: number;
-  type: 'attendance_record' | 'pending_member' | 'member' | 'session' | 'event' | 'term';
+  type: 'attendance_record' | 'pending_member' | 'member' | 'session' | 'event' | 'term' | 'fellowship';
   action: 'insert' | 'update' | 'delete';
   payload: any;
   created_at: string;

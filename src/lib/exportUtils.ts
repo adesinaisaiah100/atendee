@@ -42,18 +42,23 @@ export async function exportSessionCSV(session: Session, eventName: string) {
     ['Total Present:', records.length],
     ['Exported At:', new Date().toLocaleString()],
     [],
-    ['S/N', 'Full Name', 'Phone Number', 'Department', 'Checked In At', 'Source'],
+    ['S/N', 'Full Name', 'Check-in Code', 'Phone Number', 'Department', 'Checked In At', 'Source'],
   ];
 
   records.forEach((rec, idx) => {
     const member = memberMap.get(rec.member_id);
+    let sourceLabel = 'Self Check-in';
+    if (rec.source === 'admin_manual') sourceLabel = 'Admin Manual';
+    if (rec.source === 'code') sourceLabel = 'Code Entry';
+
     rows.push([
       idx + 1,
       member?.full_name || 'Unknown Member',
+      member?.check_in_code || 'N/A',
       member?.phone || 'N/A',
       member?.department || 'General',
       new Date(rec.checked_in_at).toLocaleTimeString(),
-      rec.source === 'self' ? 'Self Check-in' : 'Admin Manual',
+      sourceLabel,
     ]);
   });
 
@@ -79,6 +84,7 @@ export async function exportAllMembersAttendanceRateCSV(fellowshipId: string, ti
     [
       'S/N',
       'Full Name',
+      'Check-in Code',
       'Phone Number',
       'Department',
       'Active Status',
@@ -98,6 +104,7 @@ export async function exportAllMembersAttendanceRateCSV(fellowshipId: string, ti
     rows.push([
       i + 1,
       m.full_name,
+      m.check_in_code || 'N/A',
       m.phone || 'N/A',
       m.department || 'General',
       m.is_active ? 'Active' : 'Deactivated',
