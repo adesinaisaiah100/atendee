@@ -13,6 +13,10 @@ export async function queueMutation(type: any, action: 'insert' | 'update' | 'de
     created_at: new Date().toISOString(),
     attempts: 0,
   });
+
+  if (navigator.onLine && isSupabaseConfigured()) {
+    flushSyncQueue().catch(console.warn);
+  }
 }
 
 export async function flushSyncQueue(): Promise<{ syncedCount: number; errors: any[] }> {

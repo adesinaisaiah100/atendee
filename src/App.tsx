@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './lib/db';
-import { flushSyncQueue, computeInactivityAlerts } from './lib/syncEngine';
+import { flushSyncQueue, hydrateFellowshipData, computeInactivityAlerts } from './lib/syncEngine';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { Navbar, type MainTab } from './components/Navbar';
 import { AuthView } from './components/AuthView';
@@ -23,18 +23,40 @@ function AdminApp() {
   const [inactivityThreshold, setInactivityThreshold] = useState(3);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
 
-  useEffect(() => {
-    const handleOnline = () => {
-      flushSyncQueue();
-    };
-
-    window.addEventListener('online', handleOnline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-    };
-  }, []);
-
   const fellowshipId = fellowship?.id || '';
+
+  useEffect(() => {
+    if (!fellowshipId) return;
+
+    // 1. Initial hydration and queue flush
+    hydrateFellowshipData(fellowshipId).catch(console.warn);
+    flushSyncQueue().catch(console.warn);
+
+    // 2. Poll every 10 seconds to sync changes from other devices
+    const interval = setInterval(() => {
+      if (navigator.onLine) {
+        hydrateFellowshipData(fellowshipId).catch(console.warn);
+        flushSyncQueue().catch(console.warn);
+      }
+    }, 10000);
+
+    // 3. Instant sync on tab focus or online event
+    const handleSync = () => {
+      if (navigator.onLine) {
+        hydrateFellowshipData(fellowshipId).catch(console.warn);
+        flushSyncQueue().catch(console.warn);
+      }
+    };
+
+    window.addEventListener('online', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online', handleSync);
+      window.removeEventListener('focus', handleSync);
+    };
+  }, [fellowshipId]);
 
   // Live Reactive Queries Scoped to Current Tenant
   const members = useLiveQuery(

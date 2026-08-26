@@ -19,6 +19,7 @@ import {
 import type { Member, AttendanceRecord, Session } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { generateUniqueCode, generateBatchCodes } from '../lib/codeGenerator';
 import { parseMembersFile, downloadSampleCSVTemplate, type ParseResult } from '../lib/importUtils';
 
@@ -121,6 +122,13 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
       };
       await db.members.put(updated);
       await queueMutation('member', 'update', updated);
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('members').update(updated).eq('id', updated.id);
+        } catch (err) {
+          console.warn('Direct update error:', err);
+        }
+      }
     } else {
       const code = await generateUniqueCode(fellowshipId, fellowshipName);
       const newMember: Member = {
@@ -136,6 +144,13 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
       };
       await db.members.put(newMember);
       await queueMutation('member', 'insert', newMember);
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('members').insert(newMember);
+        } catch (err) {
+          console.warn('Direct insert error:', err);
+        }
+      }
     }
 
     setIsModalOpen(false);
@@ -151,6 +166,13 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
     if (window.confirm(confirmMessage)) {
       await db.members.update(member.id, { is_active: updatedStatus });
       await queueMutation('member', 'update', { id: member.id, is_active: updatedStatus });
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('members').update({ is_active: updatedStatus }).eq('id', member.id);
+        } catch (err) {
+          console.warn('Direct toggle error:', err);
+        }
+      }
       onRefresh();
     }
   };
@@ -194,12 +216,25 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         created_at: new Date().toISOString(),
       }));
 
-      // Bulk write to local Dexie IndexedDB
+      // 1. Bulk write to local Dexie IndexedDB
       await db.members.bulkPut(newMembers);
 
-      // Queue mutations for cloud Supabase sync
-      for (const m of newMembers) {
-        await queueMutation('member', 'insert', m);
+      // 2. Direct Bulk Upsert to Supabase Cloud
+      if (isSupabaseConfigured()) {
+        try {
+          const { error: sbErr } = await supabase.from('members').upsert(newMembers);
+          if (sbErr) {
+            console.warn('Direct bulk upsert error, falling back to sync queue:', sbErr);
+            for (const m of newMembers) {
+              await queueMutation('member', 'insert', m);
+            }
+          }
+        } catch (cloudErr) {
+          console.warn('Cloud bulk sync error:', cloudErr);
+          for (const m of newMembers) {
+            await queueMutation('member', 'insert', m);
+          }
+        }
       }
 
       setImportSuccessMsg(`Successfully imported ${newMembers.length} new members!`);
