@@ -92,10 +92,14 @@ export function generateSlug(name: string): string {
 /**
  * Look up a member by their check-in code within a fellowship.
  */
-export async function findMemberByCode(code: string): Promise<import('../types').Member | undefined> {
+export async function findMemberByCode(
+  code: string,
+  fellowshipId?: string
+): Promise<import('../types').Member | undefined> {
   const normalizedCode = code.toUpperCase().trim();
-  return db.members
-    .where('check_in_code')
-    .equals(normalizedCode)
-    .first();
+  let query = db.members.where('check_in_code').equals(normalizedCode);
+  if (fellowshipId) {
+    return query.and(m => m.fellowship_id === fellowshipId).first();
+  }
+  return query.first();
 }

@@ -119,7 +119,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
     setCodeError(null);
 
     try {
-      const member = await findMemberByCode(codeInput);
+      const member = await findMemberByCode(codeInput, session.fellowship_id);
 
       if (!member) {
         setCodeError('Code not found. Please check and try again.');
