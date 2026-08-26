@@ -105,7 +105,49 @@ export async function signUpAdmin(
     created_at: new Date().toISOString(),
   };
 
-  // 1. Immediately persist locally to Dexie for instant local UI reactivity
+  // 1. Sync to Supabase Cloud
+  let finalUserId = userId;
+  if (isSupabaseConfigured()) {
+    try {
+      // Check if username is already taken in cloud
+      const checkRes = await withTimeout(
+        supabase.from('fellowship_admins').select('id').eq('username', username).maybeSingle(),
+        3000
+      );
+      if (checkRes && 'data' in checkRes && checkRes.data) {
+        return { success: false, error: `The username "${username}" is already taken. Please choose another.` };
+      }
+
+      await supabase.from('fellowships').insert(fellowshipRecord);
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username,
+            fellowship_id: fellowshipId,
+            fellowship_name: trimmedName,
+          },
+        },
+      });
+
+      if (authError) {
+        return { success: false, error: authError.message };
+      }
+
+      if (authData?.user?.id) {
+        finalUserId = authData.user.id as any;
+        adminRecord.id = finalUserId;
+      }
+
+      await supabase.from('fellowship_admins').insert(adminRecord);
+      await supabase.from('terms').insert(defaultTerm);
+    } catch (err: any) {
+      console.warn('Cloud registration error, continuing with local storage:', err);
+    }
+  }
+
+  // 2. Persist locally to Dexie for instant local UI reactivity
   await db.fellowships.put(fellowshipRecord);
   await db.admins.put(adminRecord);
   await db.terms.put(defaultTerm);
@@ -115,41 +157,6 @@ export async function signUpAdmin(
     fellowship: fellowshipRecord,
   };
   setStoredAuthSession(sessionData);
-
-  // 2. Asynchronously sync to Supabase in background
-  if (isSupabaseConfigured()) {
-    withTimeout(
-      (async () => {
-        try {
-          await supabase.from('fellowships').insert(fellowshipRecord);
-          const { data: authData } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                username,
-                fellowship_id: fellowshipId,
-                fellowship_name: trimmedName,
-              },
-            },
-          });
-          const sbUserId = authData?.user?.id || userId;
-          await supabase.from('fellowship_admins').insert({
-            id: sbUserId,
-            fellowship_id: fellowshipId,
-            username,
-            email,
-            role: 'admin',
-            created_at: new Date().toISOString(),
-          });
-          await supabase.from('terms').insert(defaultTerm);
-        } catch (err) {
-          console.warn('Background cloud registration postponed:', err);
-        }
-      })(),
-      4000
-    ).catch(console.warn);
-  }
 
   return { success: true, data: sessionData };
 }
