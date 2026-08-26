@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   getStoredAuthSession,
-  setStoredAuthSession,
   loginAdmin,
   signUpAdmin,
   logoutAdmin,
@@ -65,12 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (isSupabaseConfigured()) {
       const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_OUT') {
-          setUser(null);
-          setFellowship(null);
-          setStoredAuthSession(null);
-        } else if (event === 'SIGNED_IN' && session?.user) {
-          // If we don't have user in state, reload from local storage
+        if (event === 'SIGNED_IN' && session?.user) {
           const stored = getStoredAuthSession();
           if (stored) {
             setUser(stored.user);
