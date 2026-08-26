@@ -23,27 +23,21 @@ export const AtendeeLogo: React.FC<AtendeeLogoProps> = ({
     lg: 'text-2xl',
   }[size];
 
+  const fontSizes = {
+    sm: 'text-base',
+    md: 'text-xl',
+    lg: 'text-3xl',
+  }[size];
+
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
-      {/* Sleek Geometric Modern "a" Mark with Checkmark Accent */}
+      {/* Clean bold 'a' lettermark */}
       <div
-        className={`${iconDimensions} rounded-xl bg-yellow-400 text-black flex items-center justify-center font-black shadow-md shadow-yellow-950/40 flex-shrink-0 relative overflow-hidden`}
+        className={`${iconDimensions} rounded-xl bg-yellow-400 flex items-center justify-center flex-shrink-0 shadow-md shadow-yellow-950/40`}
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="w-5 h-5 text-black"
-        >
-          {/* Bold geometric loop of 'a' */}
-          <circle cx="12" cy="12" r="6" strokeWidth="2.5" />
-          {/* Checkmark dynamic stem */}
-          <path d="M16 6v12" strokeWidth="2.8" />
-          <path d="M9 12l2 2 4-4" strokeWidth="2.5" stroke="currentColor" />
-        </svg>
+        <span className={`font-black text-black leading-none select-none ${fontSizes}`} style={{ fontFamily: 'system-ui, sans-serif', letterSpacing: '-0.05em' }}>
+          a
+        </span>
       </div>
 
       {showText && (

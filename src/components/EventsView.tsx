@@ -286,6 +286,42 @@ export const EventsView: React.FC<EventsViewProps> = ({
     }
   };
 
+  // Clear ALL sessions for a given event
+  const handleClearAllSessions = async (eventId: string) => {
+    const sessionsToClear = sessions.filter(s => s.event_id === eventId);
+    if (sessionsToClear.length === 0) {
+      alert('No sessions to clear for this event.');
+      return;
+    }
+    if (
+      window.confirm(
+        `Clear all ${sessionsToClear.length} session(s) for this event? All attendance records will be permanently deleted. This cannot be undone.`
+      )
+    ) {
+      const sessionIds = sessionsToClear.map(s => s.id);
+
+      // 1. Delete locally
+      await db.attendance_records.where('session_id').anyOf(sessionIds).delete();
+      for (const sid of sessionIds) {
+        await db.sessions.delete(sid);
+        await queueMutation('session', 'delete', { id: sid });
+      }
+
+      // 2. Delete from cloud
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('attendance_records').delete().in('session_id', sessionIds);
+          await supabase.from('sessions').delete().eq('event_id', eventId);
+        } catch (err) {
+          console.warn('Cloud clear sessions error:', err);
+        }
+      }
+
+      setExpandedSessionId(null);
+      onRefresh();
+    }
+  };
+
   // ==========================================
   // VIEW 1: INSIDE AN EVENT (Drill Down)
   // ==========================================
@@ -314,6 +350,18 @@ export const EventsView: React.FC<EventsViewProps> = ({
               <FileSpreadsheet className="w-3.5 h-3.5 text-yellow-400" />
               <span>Export CSV</span>
             </button>
+
+            {eventSessions.length > 0 && (
+              <button
+                type="button"
+                onClick={() => handleClearAllSessions(selectedEvent.id)}
+                className="px-3.5 py-2 bg-zinc-900 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-zinc-800 hover:border-rose-800/50 active:scale-95"
+                title="Clear All Sessions"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Sessions</span>
+              </button>
+            )}
 
             <button
               type="button"

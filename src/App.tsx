@@ -168,43 +168,50 @@ function AdminApp() {
       <main className="flex-1 max-w-6xl w-full mx-auto px-3.5 sm:px-8 py-6 sm:py-8 pb-28 sm:pb-12 overflow-x-hidden">
         {/* Join Link Banner */}
         {fellowshipSlug && activeTab === 'people' && (
-          <div className="mb-6 bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-zinc-900 border border-yellow-500/20 rounded-3xl p-4 sm:p-5 shadow-lg shadow-black/40 w-full max-w-full overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
-              <div className="flex-1 min-w-0 space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
-                  <p className="text-xs sm:text-sm font-black text-white tracking-wide truncate">
-                    Member Self-Registration Portal
-                  </p>
-                </div>
-                <p className="text-xs text-zinc-400 leading-relaxed break-words">
-                  Share this public link with members to register and receive their unique check-in code.
+          <div className="mb-6 bg-zinc-900 border border-yellow-500/20 rounded-3xl p-4 sm:p-5 shadow-lg w-full overflow-hidden">
+            <div className="flex flex-col gap-3 w-full min-w-0">
+              {/* Title row */}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
+                <p className="text-xs sm:text-sm font-black text-white tracking-wide">
+                  Member Self-Registration Portal
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className={`w-full sm:w-auto px-4 py-2.5 rounded-2xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-95 ${
-                    copiedLink
-                      ? 'bg-emerald-500 text-black border border-emerald-400'
-                      : 'bg-yellow-400 hover:bg-yellow-300 text-black border border-yellow-300/60 shadow-yellow-950/40'
-                  }`}
-                >
-                  {copiedLink ? (
-                    <>
-                      <span>✓</span>
-                      <span>Link Copied to Clipboard!</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>📋</span>
-                      <span>Copy Public Join Link</span>
-                    </>
-                  )}
-                </button>
+              {/* Description */}
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Share this link with members to register and receive their unique check-in code.
+              </p>
+
+              {/* URL preview */}
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 w-full overflow-hidden">
+                <p className="text-[11px] font-mono text-zinc-400 truncate w-full">
+                  {`${window.location.origin}${window.location.pathname}#/join/${fellowshipSlug}`}
+                </p>
               </div>
+
+              {/* Copy button */}
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className={`w-full py-2.5 rounded-2xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-95 ${
+                  copiedLink
+                    ? 'bg-emerald-500 text-black border border-emerald-400'
+                    : 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-yellow-950/40'
+                }`}
+              >
+                {copiedLink ? (
+                  <>
+                    <span>✓</span>
+                    <span>Link Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📋</span>
+                    <span>Copy Join Link</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         )}
