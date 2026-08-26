@@ -22,6 +22,7 @@ function AdminApp() {
   const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
   const [inactivityThreshold, setInactivityThreshold] = useState(3);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const fellowshipId = fellowship?.id || '';
 
@@ -140,9 +141,16 @@ function AdminApp() {
   const fellowshipName = fellowship.name;
   const fellowshipSlug = fellowship.slug;
 
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}#/join/${fellowshipSlug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
   // 4. ADMIN HUB: Black & Yellow Theme with Event-First Flow
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-yellow-400 selection:text-black">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-yellow-400 selection:text-black overflow-x-hidden w-full max-w-full">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -152,27 +160,47 @@ function AdminApp() {
         onLogout={logout}
       />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 pb-24 sm:pb-12">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3.5 sm:px-8 py-6 sm:py-8 pb-28 sm:pb-12 overflow-x-hidden">
         {/* Join Link Banner */}
         {fellowshipSlug && activeTab === 'people' && (
-          <div className="mb-5 bg-zinc-900 border border-zinc-800 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-zinc-300">📎 Member Self-Registration Link</p>
-              <p className="text-xs text-zinc-500 mt-0.5 truncate">
-                Share this link so members can register themselves and get their check-in code.
-              </p>
+          <div className="mb-6 bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-zinc-900 border border-yellow-500/20 rounded-3xl p-4 sm:p-5 shadow-lg shadow-black/40 w-full max-w-full overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
+                  <p className="text-xs sm:text-sm font-black text-white tracking-wide truncate">
+                    Member Self-Registration Portal
+                  </p>
+                </div>
+                <p className="text-xs text-zinc-400 leading-relaxed break-words">
+                  Share this public link with members to register and receive their unique check-in code.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className={`w-full sm:w-auto px-4 py-2.5 rounded-2xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-95 ${
+                    copiedLink
+                      ? 'bg-emerald-500 text-black border border-emerald-400'
+                      : 'bg-yellow-400 hover:bg-yellow-300 text-black border border-yellow-300/60 shadow-yellow-950/40'
+                  }`}
+                >
+                  {copiedLink ? (
+                    <>
+                      <span>✓</span>
+                      <span>Link Copied to Clipboard!</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>📋</span>
+                      <span>Copy Public Join Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                const url = `${window.location.origin}${window.location.pathname}#/join/${fellowshipSlug}`;
-                navigator.clipboard.writeText(url);
-                alert('Link copied to clipboard!');
-              }}
-              className="px-3 py-2 bg-yellow-400/10 hover:bg-yellow-400/20 text-yellow-400 text-xs font-bold rounded-xl border border-yellow-400/20 transition cursor-pointer whitespace-nowrap flex-shrink-0"
-            >
-              📋 Copy Join Link
-            </button>
           </div>
         )}
 

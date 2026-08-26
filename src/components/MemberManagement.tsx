@@ -271,17 +271,17 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   }, [viewingProfileMember, attendanceRecords, sessions]);
 
   return (
-    <div className="space-y-6 w-full pb-16 animate-in fade-in">
+    <div className="space-y-6 w-full max-w-full overflow-hidden pb-16 animate-in fade-in">
       {/* Header with Add & Import buttons */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-black text-white">People &amp; Roster</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full max-w-full">
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl font-black text-white truncate">People &amp; Roster</h2>
           <p className="text-xs text-zinc-400 mt-0.5">
             {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''} on list
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
           {/* Import Excel / CSV Button */}
           <button
             type="button"
@@ -290,26 +290,26 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
               setParseResult(null);
               setIsImportModalOpen(true);
             }}
-            className="px-4 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white font-bold text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 border border-zinc-800 active:scale-95 cursor-pointer shadow-sm"
+            className="px-3 sm:px-4 py-2.5 sm:py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white font-bold text-xs sm:text-sm rounded-2xl transition flex items-center justify-center gap-1.5 sm:gap-2 border border-zinc-800 active:scale-95 cursor-pointer shadow-sm text-center"
           >
-            <FileSpreadsheet className="w-4 h-4 text-yellow-400" />
-            <span>Import Excel / CSV</span>
+            <FileSpreadsheet className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+            <span className="truncate">Import Sheet</span>
           </button>
 
           {/* Manual Add Member Button */}
           <button
             type="button"
             onClick={handleOpenAdd}
-            className="px-5 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
+            className="px-3 sm:px-5 py-2.5 sm:py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer text-center"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>+ Add Member</span>
+            <UserPlus className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">+ Add Member</span>
           </button>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl space-y-3">
+      <div className="bg-zinc-900 border border-zinc-800 p-3.5 sm:p-4 rounded-3xl space-y-3 w-full max-w-full overflow-hidden">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {/* Search box */}
           <div className="relative sm:col-span-2">
@@ -330,7 +330,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                 key={st}
                 type="button"
                 onClick={() => setStatusFilter(st)}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg capitalize transition ${
+                className={`flex-1 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg capitalize transition cursor-pointer ${
                   statusFilter === st
                     ? 'bg-yellow-400 text-black shadow'
                     : 'text-zinc-400 hover:text-white'
@@ -343,8 +343,8 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         </div>
 
         {/* Department Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-          <span className="text-[11px] text-zinc-500 font-semibold mr-1 flex items-center gap-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar w-full touch-pan-x">
+          <span className="text-[11px] text-zinc-500 font-semibold mr-1 flex items-center gap-1 flex-shrink-0">
             <Filter className="w-3 h-3 text-yellow-400" /> Unit:
           </span>
           {departments.map(dept => (
@@ -352,7 +352,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
               key={dept}
               type="button"
               onClick={() => setSelectedDept(dept)}
-              className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+              className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer flex-shrink-0 ${
                 selectedDept === dept
                   ? 'bg-yellow-400 text-black font-bold'
                   : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
@@ -365,16 +365,16 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
       </div>
 
       {/* Members Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-full">
         {filteredMembers.length > 0 ? (
           filteredMembers.map(member => (
             <div
               key={member.id}
-              className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 p-4 rounded-2xl transition flex items-center justify-between gap-3 shadow-sm"
+              className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 p-3.5 sm:p-4 rounded-2xl transition flex items-center justify-between gap-2.5 shadow-sm w-full max-w-full overflow-hidden"
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 overflow-hidden">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm flex-shrink-0 ${
+                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm flex-shrink-0 ${
                     member.is_active
                       ? 'bg-yellow-400/10 text-yellow-400 border border-yellow-400/30'
                       : 'bg-zinc-800 text-zinc-500'
@@ -382,55 +382,55 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                 >
                   {member.full_name[0]?.toUpperCase()}
                 </div>
-                <div className="min-w-0">
-                  <div className="font-bold text-white text-sm truncate flex items-center gap-2">
-                    <span>{member.full_name}</span>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="font-bold text-white text-xs sm:text-sm truncate flex items-center gap-1.5">
+                    <span className="truncate">{member.full_name}</span>
                     {!member.is_active && (
-                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-zinc-800 text-zinc-400">
+                      <span className="px-1.5 py-0.2 rounded text-[9px] sm:text-[10px] bg-zinc-800 text-zinc-400 flex-shrink-0">
                         Inactive
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-zinc-400 flex items-center gap-2 truncate mt-0.5">
-                    <span className="text-zinc-300 font-medium">
+                  <div className="text-[11px] sm:text-xs text-zinc-400 flex items-center gap-1.5 flex-wrap sm:flex-nowrap mt-0.5 min-w-0 overflow-hidden">
+                    <span className="text-zinc-300 font-medium truncate max-w-[120px]">
                       {member.department || 'General'}
                     </span>
                     {member.check_in_code && (
-                      <span className="px-1.5 py-0.5 rounded bg-yellow-400/10 text-yellow-400 text-[10px] font-mono font-bold border border-yellow-400/20">
+                      <span className="px-1.5 py-0.5 rounded bg-yellow-400/10 text-yellow-400 text-[10px] font-mono font-bold border border-yellow-400/20 flex-shrink-0">
                         {member.check_in_code}
                       </span>
                     )}
                     {member.phone && (
-                      <span className="text-zinc-500 hidden sm:inline">• {member.phone}</span>
+                      <span className="text-zinc-500 hidden sm:inline truncate">• {member.phone}</span>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Action buttons */}
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setViewingProfileMember(member)}
-                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-yellow-400 transition cursor-pointer"
+                  className="p-1.5 sm:p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-yellow-400 transition cursor-pointer"
                   title="View Attendance Consistency"
                 >
-                  <BarChart2 className="w-4 h-4" />
+                  <BarChart2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handleOpenEdit(member)}
-                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
+                  className="p-1.5 sm:p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
                   title="Edit Profile"
                 >
-                  <Edit2 className="w-4 h-4" />
+                  <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handleToggleActive(member)}
-                  className={`p-2 rounded-xl transition cursor-pointer ${
+                  className={`p-1.5 sm:p-2 rounded-xl transition cursor-pointer ${
                     member.is_active
                       ? 'bg-zinc-800 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300'
                       : 'bg-zinc-800 hover:bg-yellow-950/60 text-zinc-400 hover:text-yellow-400'
@@ -438,9 +438,9 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                   title={member.is_active ? 'Soft-Deactivate' : 'Reactivate'}
                 >
                   {member.is_active ? (
-                    <UserX className="w-4 h-4" />
+                    <UserX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   ) : (
-                    <UserCheck className="w-4 h-4 text-yellow-400" />
+                    <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
                   )}
                 </button>
               </div>
