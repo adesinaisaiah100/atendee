@@ -1,9 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="128" fill="#09090b"/>
-  <rect x="64" y="64" width="384" height="384" rx="96" fill="#facc15"/>
-  <g transform="translate(106, 106) scale(12.5)" fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="6" stroke-width="2.5"/>
-    <path d="M16 6v12" stroke-width="2.8"/>
-    <path d="M9 12l2 2 4-4" stroke-width="2.5"/>
+  <!-- Outer dark rounded square background -->
+  <rect width="512" height="512" rx="120" fill="#09090b"/>
+  <!-- Yellow inner badge -->
+  <rect x="56" y="56" width="400" height="400" rx="96" fill="#facc15"/>
+  <!-- Calligraphic 'a' mark: stem + bowl arc, centered in the yellow badge -->
+  <!-- Scale from 24x24 viewBox to ~260x260 inside the badge, offset to center -->
+  <!-- 1 unit = 260/24 ≈ 10.83px; origin at (256 - 130, 256 - 130) = (126, 126) -->
+  <g transform="translate(126, 126) scale(10.83)">
+    <!-- Vertical stem -->
+    <line x1="15.5" y1="4" x2="15.5" y2="20"
+          stroke="#000000" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Bowl: large arc counterclockwise -->
+    <path d="M 15.5 7.2 A 7.6 7.6 0 1 0 15.5 16.8"
+          stroke="#000000" stroke-width="2.5" stroke-linecap="round" fill="none"/>
   </g>
 </svg>
