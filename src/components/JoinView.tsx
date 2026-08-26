@@ -82,8 +82,10 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
         if (found) {
           setFellowship(found);
           setViewState('form');
+          document.title = `Join ${found.name} — atendee`;
         } else {
           setViewState('not-found');
+          document.title = `Fellowship Not Found — atendee`;
         }
       } catch (err) {
         console.error('Error looking up fellowship:', err);
@@ -92,6 +94,10 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
     }
 
     lookupFellowship();
+
+    return () => {
+      document.title = 'atendee — Modern Attendance & Gathering Management';
+    };
   }, [slug]);
 
   async function handleSubmit(e: React.FormEvent) {

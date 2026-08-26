@@ -1,7 +1,7 @@
 {
   "name": "atendee — Attendance Made Effortless",
   "short_name": "atendee",
-  "description": "Offline-first attendance and church gathering manager with circulating phone check-in.",
+  "description": "Offline-first attendance platform with circulating phone check-in and 1-click cloud sync.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -10,7 +10,7 @@
   "icons": [
     {
       "src": "/favicon.svg",
-      "sizes": "192x192 512x512",
+      "sizes": "48x48 72x72 96x96 128x128 192x192 256x256 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
