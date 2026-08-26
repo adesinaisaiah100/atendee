@@ -3,7 +3,6 @@ import {
   Search,
   CheckCircle2,
   Lock,
-  Users,
   Calendar,
   X,
   Sparkles,
@@ -20,7 +19,7 @@ import type { Member, Session, EventTemplate, AttendanceRecord } from '../types'
 import { db } from '../lib/db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { queueMutation, checkInMemberOptimistic } from '../lib/syncEngine';
-import { generateUniqueCode, findMemberByCode } from '../lib/codeGenerator';
+import { generateUniqueCode } from '../lib/codeGenerator';
 
 interface KioskCheckInProps {
   session: Session | null;
@@ -49,8 +48,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   const [isPinOpen, setIsPinOpen] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [codeInput, setCodeInput] = useState('');
-  const [codeError, setCodeError] = useState<string | null>(null);
 
   // Quick Self-Registration States
   const [isQuickRegOpen, setIsQuickRegOpen] = useState(false);
@@ -80,26 +77,18 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [members]);
 
-  // Filtered members based on search
+  // Filtered members based on search (Supports name, code, phone, department)
   const filteredMembers = useMemo(() => {
     if (!searchQuery.trim()) return activeMembers;
     const q = searchQuery.toLowerCase().trim();
     return activeMembers.filter(
       m =>
         m.full_name.toLowerCase().includes(q) ||
+        (m.check_in_code && m.check_in_code.toLowerCase().includes(q)) ||
         (m.phone && m.phone.includes(q)) ||
         (m.department && m.department.toLowerCase().includes(q))
     );
   }, [activeMembers, searchQuery]);
-
-  // Available Alphabet Letters for quick jumps
-  const availableLetters = useMemo(() => {
-    const letters = new Set<string>();
-    activeMembers.forEach(m => {
-      if (m.full_name[0]) letters.add(m.full_name[0].toUpperCase());
-    });
-    return Array.from(letters).sort();
-  }, [activeMembers]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -134,43 +123,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
       console.error(err);
     } finally {
       setIsCheckingIn(false);
-    }
-  };
-
-  const handleCodeCheckIn = async () => {
-    if (!codeInput.trim() || !session) return;
-    setCodeError(null);
-
-    try {
-      const targetFellowshipId = fellowshipId || session.fellowship_id;
-      const member = await findMemberByCode(codeInput, targetFellowshipId);
-
-      if (!member) {
-        setCodeError('Code not found. Please check and try again.');
-        return;
-      }
-
-      if (checkedInMap.has(member.id)) {
-        setCodeError("You're already checked in!");
-        return;
-      }
-
-      await checkInMemberOptimistic(session.id, member.id, 'code');
-
-      confetti({
-        particleCount: 70,
-        spread: 65,
-        origin: { y: 0.8 },
-        colors: ['#facc15', '#f59e0b', '#fbbf24', '#ffffff'],
-      });
-
-      showToast(`🎉 Checked in: ${member.full_name}`);
-      setCodeInput('');
-      setCodeError(null);
-      onRefresh?.();
-    } catch (err) {
-      console.error(err);
-      setCodeError('Something went wrong. Please try again.');
     }
   };
 
@@ -262,10 +214,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
     );
   }
 
-  const checkedInCount = checkedInMap.size;
-  const totalActive = activeMembers.length;
-  const percentAttended = totalActive > 0 ? Math.round((checkedInCount / totalActive) * 100) : 0;
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-yellow-400 selection:text-black">
       {/* Top Header */}
@@ -311,30 +259,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
 
       {/* Main Container */}
       <main className="flex-1 max-w-2xl w-full mx-auto p-4 flex flex-col pb-12">
-        {/* Progress & Live Counter Banner */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 mb-3 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-yellow-400" />
-              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wide">
-                Today's Headcount
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-black text-white">{checkedInCount}</span>
-              <span className="text-xs text-zinc-400"> / {totalActive} members</span>
-              <span className="ml-2 text-xs font-black text-yellow-400">({percentAttended}%)</span>
-            </div>
-          </div>
-          <div className="w-full h-2.5 bg-zinc-950 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-yellow-400 transition-all duration-500 rounded-full"
-              style={{ width: `${Math.min(100, percentAttended)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* PROMINENT QUICK-REGISTER CALLOUT BANNER (Easy to Find) */}
+        {/* PROMINENT QUICK-REGISTER CALLOUT BANNER */}
         <div className="bg-gradient-to-r from-zinc-900 via-yellow-950/20 to-zinc-900 border border-yellow-500/30 p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl flex items-center justify-between gap-3 shadow-md mb-4">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -358,59 +283,19 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
           </button>
         </div>
 
-        {/* Code Entry Section */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 mb-4 shadow-sm">
-          <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wide mb-2">
-            Quick Check-in with Code
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              placeholder="Enter your code e.g. WCF-1234"
-              value={codeInput}
-              onChange={e => {
-                setCodeInput(e.target.value.toUpperCase());
-                setCodeError(null);
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter') handleCodeCheckIn();
-              }}
-              className="flex-1 px-4 py-3.5 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white placeholder-zinc-500 text-base font-mono font-bold text-center uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-yellow-400/20"
-            />
-            <button
-              onClick={handleCodeCheckIn}
-              disabled={!codeInput.trim()}
-              className="px-6 py-3.5 bg-yellow-400 hover:bg-yellow-300 disabled:bg-zinc-700 disabled:text-zinc-500 text-black font-black rounded-xl transition shadow-sm cursor-pointer disabled:cursor-not-allowed"
-            >
-              Check In
-            </button>
-          </div>
-          {codeError && (
-            <p className="mt-2 text-sm font-semibold text-red-400">{codeError}</p>
-          )}
-        </div>
-
-        {/* Divider */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-1 h-px bg-zinc-800" />
-          <span className="text-xs text-zinc-500 font-semibold whitespace-nowrap">
-            or tap your name below
-          </span>
-          <div className="flex-1 h-px bg-zinc-800" />
-        </div>
-
         {/* Search Bar */}
-        <div className="relative mb-3">
+        <div className="relative mb-4">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
           <input
             type="text"
-            placeholder="Type your name to check in..."
+            placeholder="Type your name or code to check in..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-12 pr-10 py-4 bg-zinc-900 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white placeholder-zinc-500 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-yellow-400/20 shadow-inner"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => setSearchQuery('')}
               className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-white rounded-full bg-zinc-800 cursor-pointer"
             >
@@ -418,21 +303,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
             </button>
           )}
         </div>
-
-        {/* Alphabet Jump Bar */}
-        {!searchQuery && availableLetters.length > 4 && (
-          <div className="flex items-center gap-1 overflow-x-auto pb-2 mb-3 no-scrollbar">
-            {availableLetters.map(letter => (
-              <a
-                key={letter}
-                href={`#section-${letter}`}
-                className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-zinc-300 hover:bg-yellow-400 hover:text-black transition"
-              >
-                {letter}
-              </a>
-            ))}
-          </div>
-        )}
 
         {/* Members Roster List */}
         <div className="space-y-2 flex-1">
