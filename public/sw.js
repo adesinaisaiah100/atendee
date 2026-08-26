@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atendee-cache-v1';
+const CACHE_NAME = 'atendee-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -31,23 +31,25 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Navigation fallback to cached index.html
+  // Network-First for HTML navigation so updates load immediately
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match('/index.html');
-      })
+      fetch(event.request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match('/index.html'))
     );
     return;
   }
 
+  // Network-First for JS and CSS assets, fallback to cache if offline
   event.respondWith(
-    caches.match(event.request).then(cachedResponse => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then(response => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
+    fetch(event.request)
+      .then(response => {
+        if (!response || response.status !== 200) {
           return response;
         }
         const responseToCache = response.clone();
@@ -55,9 +57,7 @@ self.addEventListener('fetch', event => {
           cache.put(event.request, responseToCache);
         });
         return response;
-      }).catch(() => {
-        // Return nothing or cached resource if network fails
-      });
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });
