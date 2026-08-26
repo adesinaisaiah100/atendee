@@ -118,8 +118,21 @@ export const AuthView: React.FC = () => {
         </div>
 
         {error && (
-          <div className="p-3 bg-rose-950/80 border border-rose-800/60 rounded-xl text-rose-300 text-xs font-bold text-center leading-relaxed animate-in fade-in">
-            {error}
+          <div className="p-3.5 bg-rose-950/80 border border-rose-800/60 rounded-2xl text-rose-300 text-xs font-medium text-center leading-relaxed animate-in fade-in flex flex-col items-center gap-2">
+            <span>{error}</span>
+            {tab === 'login' && error.includes('Create Account') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('signup');
+                  setSignupUsername(loginIdentifier.replace(/[^a-z0-9_]/g, ''));
+                  setError(null);
+                }}
+                className="mt-1 px-3 py-1.5 bg-yellow-400 text-black font-bold rounded-xl text-xs hover:bg-yellow-300 transition cursor-pointer"
+              >
+                Switch to Create Account →
+              </button>
+            )}
           </div>
         )}
 

@@ -235,6 +235,11 @@ export async function loginAdmin(
           targetEmail = (adminMatch.data as any).email;
           resolvedUsername = (adminMatch.data as any).username;
           fellowshipId = (adminMatch.data as any).fellowship_id;
+        } else {
+          return {
+            success: false,
+            error: `No account found with username "${cleanUsername}". If you haven't registered yet, tap "Create Account" above.`,
+          };
         }
       }
 
