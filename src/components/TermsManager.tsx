@@ -3,6 +3,7 @@ import { Layers, Plus, Calendar, Trash2, X } from 'lucide-react';
 import type { Term } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface TermsManagerProps {
   fellowshipId: string;
@@ -25,7 +26,7 @@ export const TermsManager: React.FC<TermsManagerProps> = ({
     if (!termName.trim() || !startDate || !endDate) return;
 
     const newTerm: Term = {
-      id: `t-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: crypto.randomUUID(),
       fellowship_id: fellowshipId,
       name: termName.trim(),
       start_date: startDate,
@@ -35,6 +36,13 @@ export const TermsManager: React.FC<TermsManagerProps> = ({
 
     await db.terms.put(newTerm);
     await queueMutation('term', 'insert', newTerm);
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('terms').insert(newTerm);
+      } catch (err) {
+        console.warn('Direct term insert error:', err);
+      }
+    }
     setIsAddOpen(false);
     setTermName('');
     setStartDate('');
@@ -46,6 +54,13 @@ export const TermsManager: React.FC<TermsManagerProps> = ({
     if (window.confirm(`Delete reporting term "${name}"? Historical attendance records are unaffected.`)) {
       await db.terms.delete(termId);
       await queueMutation('term', 'delete', { id: termId });
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('terms').delete().eq('id', termId);
+        } catch (err) {
+          console.warn('Direct term delete error:', err);
+        }
+      }
       onRefresh();
     }
   };

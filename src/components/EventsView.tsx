@@ -78,7 +78,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
     if (!newEventName.trim()) return;
 
     const newEv: EventTemplate = {
-      id: `e-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: crypto.randomUUID(),
       fellowship_id: fellowshipId,
       name: newEventName.trim(),
       is_active: true,
@@ -87,6 +87,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
     await db.events.put(newEv);
     await queueMutation('event', 'insert', newEv);
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('events').insert(newEv);
+      } catch (err) {
+        console.warn('Cloud create event error:', err);
+      }
+    }
 
     setIsCreateModalOpen(false);
     setNewEventName('');
@@ -109,6 +116,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
         if (window.confirm('Reopen attendance for today?')) {
           await db.sessions.update(existing.id, { status: 'open', closed_at: undefined });
           await queueMutation('session', 'update', { id: existing.id, status: 'open' });
+          if (isSupabaseConfigured()) {
+            try {
+              await supabase.from('sessions').update({ status: 'open', closed_at: null }).eq('id', existing.id);
+            } catch (err) {
+              console.warn('Cloud reopen session error:', err);
+            }
+          }
           onRefresh();
           onLaunchKiosk();
         }
@@ -119,7 +133,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
     }
 
     const newSess: Session = {
-      id: `s-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: crypto.randomUUID(),
       fellowship_id: fellowshipId,
       event_id: eventId,
       session_date: today,
@@ -129,6 +143,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
     await db.sessions.put(newSess);
     await queueMutation('session', 'insert', newSess);
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('sessions').insert(newSess);
+      } catch (err) {
+        console.warn('Cloud start session error:', err);
+      }
+    }
     onRefresh();
     onLaunchKiosk();
   };
@@ -143,9 +164,16 @@ export const EventsView: React.FC<EventsViewProps> = ({
     if (existing) {
       await db.attendance_records.delete(existing.id);
       await queueMutation('attendance_record', 'delete', { id: existing.id });
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('attendance_records').delete().eq('id', existing.id);
+        } catch (err) {
+          console.warn('Cloud delete record error:', err);
+        }
+      }
     } else {
       const record: AttendanceRecord = {
-        id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: crypto.randomUUID(),
         session_id: sessionId,
         member_id: memberId,
         checked_in_at: new Date().toISOString(),
@@ -153,6 +181,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
       };
       await db.attendance_records.put(record);
       await queueMutation('attendance_record', 'insert', record);
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('attendance_records').insert(record);
+        } catch (err) {
+          console.warn('Cloud insert record error:', err);
+        }
+      }
     }
     onRefresh();
   };

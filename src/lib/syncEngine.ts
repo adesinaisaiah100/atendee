@@ -19,6 +19,15 @@ export async function queueMutation(type: any, action: 'insert' | 'update' | 'de
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function cleanPayload(payload: any) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const copy = { ...payload };
+  delete copy.sync_status;
+  return copy;
+}
+
 export async function flushSyncQueue(): Promise<{ syncedCount: number; errors: any[] }> {
   const queue = await db.sync_queue.toArray();
   if (queue.length === 0) return { syncedCount: 0, errors: [] };
@@ -29,68 +38,76 @@ export async function flushSyncQueue(): Promise<{ syncedCount: number; errors: a
   if (isSupabaseConfigured()) {
     for (const item of queue) {
       try {
+        const payload = cleanPayload(item.payload);
+
+        // Skip or sanitize non-UUID items to prevent Postgres crash
+        if (payload?.id && !UUID_REGEX.test(payload.id)) {
+          if (item.id) await db.sync_queue.delete(item.id);
+          continue;
+        }
+
         if (item.type === 'attendance_record') {
           if (item.action === 'insert' || item.action === 'update') {
             const { error } = await supabase
               .from('attendance_records')
-              .upsert(item.payload, { onConflict: 'session_id,member_id' });
+              .upsert(payload, { onConflict: 'session_id,member_id' });
             if (error) throw error;
           } else if (item.action === 'delete') {
-            const { error } = await supabase.from('attendance_records').delete().eq('id', item.payload.id);
+            const { error } = await supabase.from('attendance_records').delete().eq('id', payload.id);
             if (error) throw error;
           }
         } else if (item.type === 'pending_member') {
           if (item.action === 'insert') {
-            const { error } = await supabase.from('pending_members').insert(item.payload);
+            const { error } = await supabase.from('pending_members').insert(payload);
             if (error) throw error;
           } else if (item.action === 'update') {
-            const { error } = await supabase.from('pending_members').update(item.payload).eq('id', item.payload.id);
+            const { error } = await supabase.from('pending_members').update(payload).eq('id', payload.id);
             if (error) throw error;
           } else if (item.action === 'delete') {
-            const { error } = await supabase.from('pending_members').delete().eq('id', item.payload.id);
+            const { error } = await supabase.from('pending_members').delete().eq('id', payload.id);
             if (error) throw error;
           }
         } else if (item.type === 'member') {
           if (item.action === 'insert') {
-            const { error } = await supabase.from('members').insert(item.payload);
+            const { error } = await supabase.from('members').insert(payload);
             if (error) throw error;
           } else if (item.action === 'update') {
-            const { error } = await supabase.from('members').update(item.payload).eq('id', item.payload.id);
+            const { error } = await supabase.from('members').update(payload).eq('id', payload.id);
             if (error) throw error;
           } else if (item.action === 'delete') {
-            const { error } = await supabase.from('members').delete().eq('id', item.payload.id);
+            const { error } = await supabase.from('members').delete().eq('id', payload.id);
             if (error) throw error;
           }
         } else if (item.type === 'session') {
           if (item.action === 'insert') {
-            const { error } = await supabase.from('sessions').insert(item.payload);
+            const { error } = await supabase.from('sessions').insert(payload);
             if (error) throw error;
           } else if (item.action === 'update') {
-            const { error } = await supabase.from('sessions').update(item.payload).eq('id', item.payload.id);
+            const { error } = await supabase.from('sessions').update(payload).eq('id', payload.id);
             if (error) throw error;
           } else if (item.action === 'delete') {
-            const { error } = await supabase.from('sessions').delete().eq('id', item.payload.id);
+            const { error } = await supabase.from('sessions').delete().eq('id', payload.id);
             if (error) throw error;
           }
         } else if (item.type === 'event') {
           if (item.action === 'insert') {
-            const { error } = await supabase.from('events').insert(item.payload);
+            const { error } = await supabase.from('events').insert(payload);
             if (error) throw error;
           } else if (item.action === 'update') {
-            const { error } = await supabase.from('events').update(item.payload).eq('id', item.payload.id);
+            const { error } = await supabase.from('events').update(payload).eq('id', payload.id);
             if (error) throw error;
           } else if (item.action === 'delete') {
-            const { error } = await supabase.from('events').delete().eq('id', item.payload.id);
+            const { error } = await supabase.from('events').delete().eq('id', payload.id);
             if (error) throw error;
           }
         } else if (item.type === 'fellowship') {
           if (item.action === 'insert' || item.action === 'update') {
-            const { error } = await supabase.from('fellowships').upsert(item.payload);
+            const { error } = await supabase.from('fellowships').upsert(payload);
             if (error) throw error;
           }
         } else if (item.type === 'term') {
           if (item.action === 'insert' || item.action === 'update') {
-            const { error } = await supabase.from('terms').upsert(item.payload);
+            const { error } = await supabase.from('terms').upsert(payload);
             if (error) throw error;
           }
         }
@@ -119,6 +136,65 @@ export async function hydrateFellowshipData(fellowshipId: string): Promise<void>
   if (!fellowshipId || !isSupabaseConfigured()) return;
 
   try {
+    // 0. Auto-Migrate any legacy non-UUID local records on this device
+    const localEvents = await db.events.where('fellowship_id').equals(fellowshipId).toArray();
+    for (const ev of localEvents) {
+      if (!UUID_REGEX.test(ev.id)) {
+        const oldId = ev.id;
+        const newId = crypto.randomUUID();
+        await db.events.delete(oldId);
+        const migratedEv = { ...ev, id: newId };
+        await db.events.put(migratedEv);
+
+        // Update sessions referencing this event
+        const relatedSessions = await db.sessions.where('event_id').equals(oldId).toArray();
+        for (const sess of relatedSessions) {
+          const oldSessId = sess.id;
+          const newSessId = UUID_REGEX.test(oldSessId) ? oldSessId : crypto.randomUUID();
+          await db.sessions.delete(oldSessId);
+          const migratedSess = { ...sess, id: newSessId, event_id: newId };
+          await db.sessions.put(migratedSess);
+
+          // Update attendance records referencing this session
+          const relatedAtt = await db.attendance_records.where('session_id').equals(oldSessId).toArray();
+          for (const att of relatedAtt) {
+            const oldAttId = att.id;
+            const newAttId = UUID_REGEX.test(oldAttId) ? oldAttId : crypto.randomUUID();
+            await db.attendance_records.delete(oldAttId);
+            await db.attendance_records.put({ ...att, id: newAttId, session_id: newSessId });
+          }
+
+          // Push session to Supabase
+          try {
+            await supabase.from('sessions').upsert({
+              id: newSessId,
+              fellowship_id: fellowshipId,
+              event_id: newId,
+              session_date: sess.session_date,
+              status: sess.status,
+              opened_at: sess.opened_at,
+              closed_at: sess.closed_at,
+            });
+          } catch (err) {
+            console.warn('Session migration error:', err);
+          }
+        }
+
+        // Push event to Supabase
+        try {
+          await supabase.from('events').upsert({
+            id: newId,
+            fellowship_id: fellowshipId,
+            name: migratedEv.name,
+            is_active: migratedEv.is_active,
+            created_at: migratedEv.created_at,
+          });
+        } catch (err) {
+          console.warn('Event migration error:', err);
+        }
+      }
+    }
+
     // 1. Fetch Fellowship
     const { data: fData } = await supabase
       .from('fellowships')
@@ -206,7 +282,7 @@ export async function checkInMemberOptimistic(
   memberId: string,
   source: AttendanceSource = 'self'
 ): Promise<AttendanceRecord> {
-  const recordId = `a-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const recordId = crypto.randomUUID();
   const record: AttendanceRecord = {
     id: recordId,
     session_id: sessionId,
@@ -222,9 +298,13 @@ export async function checkInMemberOptimistic(
   // 2. Queue for background sync
   await queueMutation('attendance_record', 'insert', record);
 
-  // 3. Trigger immediate sync if online
-  if (navigator.onLine) {
-    flushSyncQueue().catch(console.error);
+  // 3. Direct fast write if online
+  if (navigator.onLine && isSupabaseConfigured()) {
+    try {
+      await supabase.from('attendance_records').insert(cleanPayload(record));
+    } catch (err) {
+      console.warn('Direct attendance record insert error:', err);
+    }
   }
 
   return record;
@@ -237,7 +317,7 @@ export async function registerPendingMember(
   enteredName: string,
   phone?: string
 ): Promise<PendingMember> {
-  const pendingId = `p-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const pendingId = crypto.randomUUID();
   const pending: PendingMember = {
     id: pendingId,
     fellowship_id: fellowshipId,
@@ -252,8 +332,12 @@ export async function registerPendingMember(
   await db.pending_members.put(pending);
   await queueMutation('pending_member', 'insert', pending);
 
-  if (navigator.onLine) {
-    flushSyncQueue().catch(console.error);
+  if (navigator.onLine && isSupabaseConfigured()) {
+    try {
+      await supabase.from('pending_members').insert(cleanPayload(pending));
+    } catch (err) {
+      console.warn('Direct pending member insert error:', err);
+    }
   }
 
   return pending;

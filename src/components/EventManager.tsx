@@ -13,6 +13,7 @@ import {
 import type { EventTemplate, Session, Member, AttendanceRecord } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { exportSessionCSV } from '../lib/exportUtils';
 
 interface EventManagerProps {
@@ -59,7 +60,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
     if (!newEventName.trim()) return;
 
     const newEv: EventTemplate = {
-      id: `e-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: crypto.randomUUID(),
       fellowship_id: fellowshipId,
       name: newEventName.trim(),
       is_active: true,
@@ -68,6 +69,13 @@ export const EventManager: React.FC<EventManagerProps> = ({
 
     await db.events.put(newEv);
     await queueMutation('event', 'insert', newEv);
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('events').insert(newEv);
+      } catch (err) {
+        console.warn('Direct event insert error:', err);
+      }
+    }
 
     setIsAddEventOpen(false);
     setNewEventName('');
@@ -89,6 +97,13 @@ export const EventManager: React.FC<EventManagerProps> = ({
         if (window.confirm('This session was closed earlier today. Reopen it for check-in?')) {
           await db.sessions.update(existing.id, { status: 'open', closed_at: undefined });
           await queueMutation('session', 'update', { id: existing.id, status: 'open' });
+          if (isSupabaseConfigured()) {
+            try {
+              await supabase.from('sessions').update({ status: 'open', closed_at: null }).eq('id', existing.id);
+            } catch (err) {
+              console.warn('Direct session update error:', err);
+            }
+          }
           onRefresh();
           onLaunchKiosk();
         }
@@ -99,7 +114,7 @@ export const EventManager: React.FC<EventManagerProps> = ({
     }
 
     const newSess: Session = {
-      id: `s-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: crypto.randomUUID(),
       fellowship_id: fellowshipId,
       event_id: eventId,
       session_date: today,
@@ -109,6 +124,13 @@ export const EventManager: React.FC<EventManagerProps> = ({
 
     await db.sessions.put(newSess);
     await queueMutation('session', 'insert', newSess);
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('sessions').insert(newSess);
+      } catch (err) {
+        console.warn('Direct session insert error:', err);
+      }
+    }
     onRefresh();
     onLaunchKiosk();
   };
@@ -122,9 +144,16 @@ export const EventManager: React.FC<EventManagerProps> = ({
     if (existing) {
       await db.attendance_records.delete(existing.id);
       await queueMutation('attendance_record', 'delete', { id: existing.id });
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('attendance_records').delete().eq('id', existing.id);
+        } catch (err) {
+          console.warn('Direct attendance delete error:', err);
+        }
+      }
     } else {
       const record: AttendanceRecord = {
-        id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: crypto.randomUUID(),
         session_id: sessionId,
         member_id: memberId,
         checked_in_at: new Date().toISOString(),
@@ -132,6 +161,13 @@ export const EventManager: React.FC<EventManagerProps> = ({
       };
       await db.attendance_records.put(record);
       await queueMutation('attendance_record', 'insert', record);
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('attendance_records').insert(record);
+        } catch (err) {
+          console.warn('Direct attendance insert error:', err);
+        }
+      }
     }
     onRefresh();
   };
