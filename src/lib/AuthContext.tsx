@@ -92,8 +92,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.success && res.data) {
         setUser(res.data.user);
         setFellowship(res.data.fellowship);
-        // Hydrate all tenant records from Supabase
-        await hydrateFellowshipData(res.data.fellowship.id);
+        // Hydrate all tenant records from Supabase in background
+        hydrateFellowshipData(res.data.fellowship.id).catch(console.warn);
         return { success: true };
       }
       return { success: false, error: res.error };

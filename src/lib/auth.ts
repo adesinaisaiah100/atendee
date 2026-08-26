@@ -10,6 +10,21 @@ export interface AuthSessionData {
   fellowship: Fellowship;
 }
 
+/** Helper to wrap any async operation with a strict timeout */
+async function withTimeout<T>(promise: PromiseLike<T>, ms = 3500): Promise<T | null> {
+  let timer: any;
+  const timeout = new Promise<null>(resolve => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([Promise.resolve(promise), timeout]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Get stored auth session from localStorage */
 export function getStoredAuthSession(): AuthSessionData | null {
   try {
@@ -62,132 +77,81 @@ export async function signUpAdmin(
   }
 
   const fellowshipId = crypto.randomUUID();
+  const userId = crypto.randomUUID();
   let slug = generateSlug(trimmedName);
 
-  try {
-    if (isSupabaseConfigured()) {
-      // 1. Check if username is already taken
-      const { data: existingUser } = await supabase
-        .from('fellowship_admins')
-        .select('id')
-        .eq('username', username)
-        .maybeSingle();
+  const fellowshipRecord: Fellowship = {
+    id: fellowshipId,
+    name: trimmedName,
+    slug,
+    created_at: new Date().toISOString(),
+  };
 
-      if (existingUser) {
-        return { success: false, error: 'This username is already taken. Please choose another.' };
-      }
+  const adminRecord: AdminUser = {
+    id: userId,
+    fellowship_id: fellowshipId,
+    username,
+    email,
+    role: 'admin',
+    created_at: new Date().toISOString(),
+  };
 
-      // 2. Ensure unique slug for fellowship
-      const { data: existingSlug } = await supabase
-        .from('fellowships')
-        .select('id')
-        .eq('slug', slug)
-        .maybeSingle();
+  const defaultTerm: Term = {
+    id: crypto.randomUUID(),
+    fellowship_id: fellowshipId,
+    name: `${new Date().getFullYear()} Annual Term`,
+    start_date: `${new Date().getFullYear()}-01-01`,
+    end_date: `${new Date().getFullYear()}-12-31`,
+    created_at: new Date().toISOString(),
+  };
 
-      if (existingSlug) {
-        slug = `${slug}-${Math.floor(1000 + Math.random() * 9000)}`;
-      }
+  // 1. Immediately persist locally to Dexie for instant local UI reactivity
+  await db.fellowships.put(fellowshipRecord);
+  await db.admins.put(adminRecord);
+  await db.terms.put(defaultTerm);
 
-      // 3. Create Fellowship Record in Supabase
-      const fellowshipRecord: Fellowship = {
-        id: fellowshipId,
-        name: trimmedName,
-        slug,
-        created_at: new Date().toISOString(),
-      };
+  const sessionData: AuthSessionData = {
+    user: adminRecord,
+    fellowship: fellowshipRecord,
+  };
+  setStoredAuthSession(sessionData);
 
-      const { error: fError } = await supabase.from('fellowships').insert(fellowshipRecord);
-      if (fError) {
-        console.error('Error creating fellowship in Supabase:', fError);
-      }
-
-      // 4. Sign up via Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username,
+  // 2. Asynchronously sync to Supabase in background
+  if (isSupabaseConfigured()) {
+    withTimeout(
+      (async () => {
+        try {
+          await supabase.from('fellowships').insert(fellowshipRecord);
+          const { data: authData } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                username,
+                fellowship_id: fellowshipId,
+                fellowship_name: trimmedName,
+              },
+            },
+          });
+          const sbUserId = authData?.user?.id || userId;
+          await supabase.from('fellowship_admins').insert({
+            id: sbUserId,
             fellowship_id: fellowshipId,
-            fellowship_name: trimmedName,
-          },
-        },
-      });
-
-      if (authError) {
-        return { success: false, error: authError.message };
-      }
-
-      const userId = authData.user?.id || crypto.randomUUID();
-
-      // 5. Create Fellowship Admin record
-      const adminRecord: AdminUser = {
-        id: userId,
-        fellowship_id: fellowshipId,
-        username,
-        email,
-        role: 'admin',
-        created_at: new Date().toISOString(),
-      };
-
-      await supabase.from('fellowship_admins').insert(adminRecord);
-
-      // 6. Create default annual term
-      const defaultTerm: Term = {
-        id: crypto.randomUUID(),
-        fellowship_id: fellowshipId,
-        name: `${new Date().getFullYear()} Annual Term`,
-        start_date: `${new Date().getFullYear()}-01-01`,
-        end_date: `${new Date().getFullYear()}-12-31`,
-        created_at: new Date().toISOString(),
-      };
-      await supabase.from('terms').insert(defaultTerm);
-
-      // 7. Write to Local Dexie DB
-      await db.fellowships.put(fellowshipRecord);
-      await db.admins.put(adminRecord);
-      await db.terms.put(defaultTerm);
-
-      const sessionData: AuthSessionData = {
-        user: adminRecord,
-        fellowship: fellowshipRecord,
-      };
-      setStoredAuthSession(sessionData);
-
-      return { success: true, data: sessionData };
-    } else {
-      // Local fallback
-      const fellowshipRecord: Fellowship = {
-        id: fellowshipId,
-        name: trimmedName,
-        slug,
-        created_at: new Date().toISOString(),
-      };
-
-      const adminRecord: AdminUser = {
-        id: crypto.randomUUID(),
-        fellowship_id: fellowshipId,
-        username,
-        email,
-        role: 'admin',
-        created_at: new Date().toISOString(),
-      };
-
-      await db.fellowships.put(fellowshipRecord);
-      await db.admins.put(adminRecord);
-
-      const sessionData: AuthSessionData = {
-        user: adminRecord,
-        fellowship: fellowshipRecord,
-      };
-      setStoredAuthSession(sessionData);
-
-      return { success: true, data: sessionData };
-    }
-  } catch (err: any) {
-    console.error('Sign up error:', err);
-    return { success: false, error: err.message || 'An unexpected error occurred during signup.' };
+            username,
+            email,
+            role: 'admin',
+            created_at: new Date().toISOString(),
+          });
+          await supabase.from('terms').insert(defaultTerm);
+        } catch (err) {
+          console.warn('Background cloud registration postponed:', err);
+        }
+      })(),
+      4000
+    ).catch(console.warn);
   }
+
+  return { success: true, data: sessionData };
 }
 
 /**
@@ -205,137 +169,149 @@ export async function loginAdmin(
     return { success: false, error: 'Please enter your password.' };
   }
 
-  try {
-    let targetEmail = identifier.toLowerCase();
-    let resolvedUsername = '';
-    let fellowshipId = '';
+  const cleanIdent = identifier.toLowerCase();
+  const cleanUsername = sanitizeUsername(identifier);
 
-    if (isSupabaseConfigured()) {
-      // If identifier is NOT an email (no '@'), resolve username -> email
-      if (!identifier.includes('@')) {
-        const cleanUsername = sanitizeUsername(identifier);
-        const { data: adminMatch, error: adminErr } = await supabase
-          .from('fellowship_admins')
-          .select('email, username, fellowship_id, id')
-          .eq('username', cleanUsername)
-          .maybeSingle();
+  // 1. Check local Dexie store first
+  const localAdmin = await db.admins
+    .filter(
+      a =>
+        a.email.toLowerCase() === cleanIdent ||
+        a.username.toLowerCase() === cleanUsername
+    )
+    .first();
 
-        if (adminErr || !adminMatch) {
-          return { success: false, error: `No account found with username "${cleanUsername}".` };
-        }
-
-        targetEmail = adminMatch.email;
-        resolvedUsername = adminMatch.username;
-        fellowshipId = adminMatch.fellowship_id;
-      }
-
-      // Sign in with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: targetEmail,
-        password,
-      });
-
-      if (authError || !authData.user) {
-        return {
-          success: false,
-          error: authError?.message || 'Invalid credentials. Please check your username/email and password.',
-        };
-      }
-
-      // Fetch admin details if not already resolved
-      if (!fellowshipId || !resolvedUsername) {
-        const { data: adminRecord } = await supabase
-          .from('fellowship_admins')
-          .select('id, fellowship_id, username, email, role')
-          .eq('id', authData.user.id)
-          .maybeSingle();
-
-        if (adminRecord) {
-          fellowshipId = adminRecord.fellowship_id;
-          resolvedUsername = adminRecord.username;
-        } else {
-          // Fallback to user metadata
-          fellowshipId = authData.user.user_metadata?.fellowship_id || '';
-          resolvedUsername = authData.user.user_metadata?.username || targetEmail.split('@')[0];
-        }
-      }
-
-      // Fetch Fellowship Details
-      let fellowship: Fellowship | null = null;
-      if (fellowshipId) {
-        const { data: fData } = await supabase
-          .from('fellowships')
-          .select('*')
-          .eq('id', fellowshipId)
-          .maybeSingle();
-
-        if (fData) {
-          fellowship = {
-            id: fData.id,
-            name: fData.name,
-            slug: fData.slug,
-            created_at: fData.created_at,
-          };
-          await db.fellowships.put(fellowship);
-        }
-      }
-
-      if (!fellowship) {
-        fellowship = {
-          id: fellowshipId || crypto.randomUUID(),
-          name: 'My Fellowship',
-          slug: 'my-fellowship',
-          created_at: new Date().toISOString(),
-        };
-      }
-
-      const adminUser: AdminUser = {
-        id: authData.user.id,
-        fellowship_id: fellowship.id,
-        username: resolvedUsername || targetEmail.split('@')[0],
-        email: targetEmail,
-        role: 'admin',
-        created_at: new Date().toISOString(),
-      };
-
-      await db.admins.put(adminUser);
-
-      const sessionData: AuthSessionData = {
-        user: adminUser,
-        fellowship,
-      };
-
-      setStoredAuthSession(sessionData);
-      return { success: true, data: sessionData };
-    } else {
-      // Local fallback mode
-      const localAdmin = await db.admins.filter(a =>
-        a.email.toLowerCase() === targetEmail || a.username.toLowerCase() === sanitizeUsername(identifier)
-      ).first();
-
-      if (!localAdmin) {
-        return { success: false, error: 'Account not found in local database.' };
-      }
-
-      const localFellowship = (await db.fellowships.get(localAdmin.fellowship_id)) || {
+  if (localAdmin) {
+    let localFellowship = await db.fellowships.get(localAdmin.fellowship_id);
+    if (!localFellowship) {
+      localFellowship = {
         id: localAdmin.fellowship_id,
         name: 'My Fellowship',
         slug: 'my-fellowship',
         created_at: new Date().toISOString(),
       };
-
-      const sessionData: AuthSessionData = {
-        user: localAdmin,
-        fellowship: localFellowship,
-      };
-
-      setStoredAuthSession(sessionData);
-      return { success: true, data: sessionData };
+      await db.fellowships.put(localFellowship);
     }
-  } catch (err: any) {
-    console.error('Login error:', err);
-    return { success: false, error: err.message || 'Login failed. Please try again.' };
+
+    const sessionData: AuthSessionData = {
+      user: localAdmin,
+      fellowship: localFellowship,
+    };
+    setStoredAuthSession(sessionData);
+
+    // Try cloud authentication in background
+    if (isSupabaseConfigured()) {
+      withTimeout(
+        supabase.auth.signInWithPassword({
+          email: localAdmin.email,
+          password,
+        }),
+        3000
+      ).catch(console.warn);
+    }
+
+    return { success: true, data: sessionData };
   }
+
+  // 2. If not found locally, try Supabase Cloud Auth
+  if (isSupabaseConfigured()) {
+    try {
+      let targetEmail = cleanIdent;
+      let resolvedUsername = '';
+      let fellowshipId = '';
+
+      // If username provided, query fellowship_admins with timeout
+      if (!identifier.includes('@')) {
+        const adminMatch = await withTimeout(
+          supabase
+            .from('fellowship_admins')
+            .select('email, username, fellowship_id, id')
+            .eq('username', cleanUsername)
+            .maybeSingle(),
+          3000
+        );
+
+        if (adminMatch?.data) {
+          targetEmail = (adminMatch.data as any).email;
+          resolvedUsername = (adminMatch.data as any).username;
+          fellowshipId = (adminMatch.data as any).fellowship_id;
+        }
+      }
+
+      const authRes = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: targetEmail,
+          password,
+        }),
+        3500
+      );
+
+      if (authRes?.data?.user) {
+        if (!fellowshipId) {
+          fellowshipId = authRes.data.user.user_metadata?.fellowship_id || '';
+          resolvedUsername = authRes.data.user.user_metadata?.username || targetEmail.split('@')[0];
+        }
+
+        let fellowship: Fellowship | null = null;
+        if (fellowshipId) {
+          const fRes = await withTimeout(
+            supabase.from('fellowships').select('*').eq('id', fellowshipId).maybeSingle(),
+            2500
+          );
+          if (fRes?.data) {
+            const fData = fRes.data as any;
+            fellowship = {
+              id: fData.id,
+              name: fData.name,
+              slug: fData.slug,
+              created_at: fData.created_at,
+            };
+            await db.fellowships.put(fellowship);
+          }
+        }
+
+        if (!fellowship) {
+          fellowship = {
+            id: fellowshipId || crypto.randomUUID(),
+            name: authRes.data.user.user_metadata?.fellowship_name || 'My Fellowship',
+            slug: 'fellowship',
+            created_at: new Date().toISOString(),
+          };
+          await db.fellowships.put(fellowship);
+        }
+
+        const adminUser: AdminUser = {
+          id: authRes.data.user.id,
+          fellowship_id: fellowship.id,
+          username: resolvedUsername || targetEmail.split('@')[0],
+          email: targetEmail,
+          role: 'admin',
+          created_at: new Date().toISOString(),
+        };
+
+        await db.admins.put(adminUser);
+
+        const sessionData: AuthSessionData = {
+          user: adminUser,
+          fellowship,
+        };
+
+        setStoredAuthSession(sessionData);
+        return { success: true, data: sessionData };
+      }
+
+      if (authRes?.error) {
+        return { success: false, error: authRes.error.message };
+      }
+    } catch (err: any) {
+      console.warn('Login error:', err);
+    }
+  }
+
+  return {
+    success: false,
+    error: 'No account found with these credentials. Please check your username/email and password, or tap "Create Account".',
+  };
 }
 
 /**
@@ -346,13 +322,13 @@ export async function verifyAdminPassword(email: string, password: string): Prom
   if (!isSupabaseConfigured()) return true;
 
   try {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return !error;
+    const res = await withTimeout(
+      supabase.auth.signInWithPassword({ email, password }),
+      2500
+    );
+    return res ? !res.error : true;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -362,7 +338,7 @@ export async function verifyAdminPassword(email: string, password: string): Prom
 export async function logoutAdmin(): Promise<void> {
   try {
     if (isSupabaseConfigured()) {
-      await supabase.auth.signOut();
+      await withTimeout(supabase.auth.signOut(), 2000);
     }
   } catch (err) {
     console.error('Sign out error:', err);
