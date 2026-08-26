@@ -20,15 +20,25 @@ export const SUPABASE_SQL_SCHEMA = `-- =========================================
 -- 1. Organizations / Fellowships
 CREATE TABLE IF NOT EXISTS fellowships (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name           TEXT NOT NULL UNIQUE,
-  slug           TEXT UNIQUE,
-  password_hash  TEXT NOT NULL DEFAULT 'fellowship2026',
-  pin_code       VARCHAR(4) NOT NULL DEFAULT '1234',
-  recovery_email TEXT,
+  name           TEXT NOT NULL,
+  slug           TEXT UNIQUE NOT NULL,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_fellowships_slug ON fellowships(slug);
 
--- 2. Known Members
+-- 2. Fellowship Admins (Maps Supabase Auth User -> Fellowship Tenant)
+CREATE TABLE IF NOT EXISTS fellowship_admins (
+  id             UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  fellowship_id  UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
+  username       TEXT NOT NULL UNIQUE,
+  email          TEXT NOT NULL UNIQUE,
+  role           TEXT NOT NULL DEFAULT 'admin',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_admins_username ON fellowship_admins(lower(username));
+CREATE INDEX IF NOT EXISTS idx_admins_fellowship ON fellowship_admins(fellowship_id);
+
+-- 3. Known Members
 CREATE TABLE IF NOT EXISTS members (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fellowship_id  UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
@@ -44,7 +54,7 @@ CREATE TABLE IF NOT EXISTS members (
 CREATE INDEX IF NOT EXISTS idx_members_fellowship ON members(fellowship_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_members_code ON members(check_in_code);
 
--- 3. Event Templates (Recurring)
+-- 4. Event Templates (Recurring)
 CREATE TABLE IF NOT EXISTS events (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fellowship_id  UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
@@ -54,7 +64,7 @@ CREATE TABLE IF NOT EXISTS events (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 4. Dated Sessions
+-- 5. Dated Sessions
 CREATE TABLE IF NOT EXISTS sessions (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fellowship_id  UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
@@ -68,7 +78,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_fellowship_date ON sessions(fellowship_id, session_date);
 
--- 5. Attendance Records
+-- 6. Attendance Records
 CREATE TABLE IF NOT EXISTS attendance_records (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id    UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -80,7 +90,7 @@ CREATE TABLE IF NOT EXISTS attendance_records (
 CREATE INDEX IF NOT EXISTS idx_attendance_session_member ON attendance_records(session_id, member_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_member_checked ON attendance_records(member_id, checked_in_at);
 
--- 6. Pending Members (New / Unrecognized entries)
+-- 7. Pending Members (New / Unrecognized entries)
 CREATE TABLE IF NOT EXISTS pending_members (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fellowship_id          UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
@@ -94,7 +104,7 @@ CREATE TABLE IF NOT EXISTS pending_members (
 );
 CREATE INDEX IF NOT EXISTS idx_pending_fellowship_status ON pending_members(fellowship_id, status);
 
--- 7. Academic Terms / Semesters
+-- 8. Academic Terms / Semesters
 CREATE TABLE IF NOT EXISTS terms (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fellowship_id  UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
@@ -108,6 +118,7 @@ CREATE TABLE IF NOT EXISTS terms (
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ==========================================
 ALTER TABLE fellowships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fellowship_admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
@@ -115,12 +126,13 @@ ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pending_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE terms ENABLE ROW LEVEL SECURITY;
 
--- Allow public access with anon key for self-check-in & demo
-CREATE POLICY "Public Read Members" ON members FOR SELECT USING (true);
-CREATE POLICY "Public Insert Attendance" ON attendance_records FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public Read Sessions" ON sessions FOR SELECT USING (true);
-CREATE POLICY "Public Insert Pending" ON pending_members FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public Read Events" ON events FOR SELECT USING (true);
-CREATE POLICY "Public Read Terms" ON terms FOR SELECT USING (true);
-CREATE POLICY "Public Read Fellowships" ON fellowships FOR SELECT USING (true);
+-- Allow public access with anon key for self-check-in & cross-tenant sync
+CREATE POLICY "Public Read Fellowships" ON fellowships FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Read Admins" ON fellowship_admins FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Read Members" ON members FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Attendance" ON attendance_records FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Sessions" ON sessions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Pending" ON pending_members FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Events" ON events FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Terms" ON terms FOR ALL USING (true) WITH CHECK (true);
 `;

@@ -8,6 +8,7 @@ import type {
   PendingMember,
   Term,
   SyncQueueItem,
+  AdminUser,
 } from '../types';
 
 export class FellowshipDatabase extends Dexie {
@@ -19,6 +20,7 @@ export class FellowshipDatabase extends Dexie {
   pending_members!: Table<PendingMember, string>;
   terms!: Table<Term, string>;
   sync_queue!: Table<SyncQueueItem, number>;
+  admins!: Table<AdminUser, string>;
 
   constructor() {
     super('FellowshipAttendanceDB');
@@ -73,6 +75,19 @@ export class FellowshipDatabase extends Dexie {
           usedCodes.add(m.check_in_code);
         }
       }
+    });
+
+    // v3 adds admins table for multi-tenant auth profiles
+    this.version(3).stores({
+      fellowships: 'id, name, slug',
+      members: 'id, fellowship_id, full_name, is_active, department, check_in_code',
+      events: 'id, fellowship_id, is_active',
+      sessions: 'id, fellowship_id, event_id, session_date, status, [event_id+session_date]',
+      attendance_records: 'id, session_id, member_id, sync_status, [session_id+member_id]',
+      pending_members: 'id, fellowship_id, session_id, status, sync_status',
+      terms: 'id, fellowship_id, start_date, end_date',
+      sync_queue: '++id, type, action, created_at',
+      admins: 'id, fellowship_id, username, email',
     });
   }
 }

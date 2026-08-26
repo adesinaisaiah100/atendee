@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './lib/db';
-import { initializeSeedData, DEFAULT_FELLOWSHIP_ID } from './lib/seedData';
 import { flushSyncQueue, computeInactivityAlerts } from './lib/syncEngine';
+import { AuthProvider, useAuth } from './lib/AuthContext';
 import { Navbar, type MainTab } from './components/Navbar';
-import { LoginView } from './components/LoginView';
+import { AuthView } from './components/AuthView';
 import { KioskCheckIn } from './components/KioskCheckIn';
 import { EventsView } from './components/EventsView';
 import { MemberManagement } from './components/MemberManagement';
@@ -14,33 +14,16 @@ import { SettingsView } from './components/SettingsView';
 import { JoinView } from './components/JoinView';
 import type { InactivityAlert } from './types';
 
-/** Main Admin Dashboard (existing app) */
+/** Main Admin Dashboard (Multi-Tenant Scoped) */
 function AdminApp() {
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { user, fellowship, isLoading, isAuthenticated, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<MainTab>('events');
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
   const [inactivityThreshold, setInactivityThreshold] = useState(3);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
 
-  // Initialize clean state & clear any previous mock events
   useEffect(() => {
-    initializeSeedData().then(async () => {
-      // Purge any legacy default event IDs if they existed in previous sessions
-      const legacyMockEvents = await db.events
-        .where('id')
-        .anyOf(['e0000001-0000-0000-0000-000000000001', 'e0000002-0000-0000-0000-000000000002'])
-        .toArray();
-      if (legacyMockEvents.length > 0) {
-        await db.events
-          .where('id')
-          .anyOf(['e0000001-0000-0000-0000-000000000001', 'e0000002-0000-0000-0000-000000000002'])
-          .delete();
-      }
-      setIsInitialized(true);
-    });
-
     const handleOnline = () => {
       flushSyncQueue();
     };
@@ -51,12 +34,29 @@ function AdminApp() {
     };
   }, []);
 
-  // Live Reactive Queries from Dexie
-  const fellowship = useLiveQuery(() => db.fellowships.get(DEFAULT_FELLOWSHIP_ID));
-  const members = useLiveQuery(() => db.members.toArray()) || [];
-  const events = useLiveQuery(() => db.events.toArray()) || [];
-  const sessions = useLiveQuery(() => db.sessions.toArray()) || [];
-  const attendanceRecords = useLiveQuery(() => db.attendance_records.toArray()) || [];
+  const fellowshipId = fellowship?.id || '';
+
+  // Live Reactive Queries Scoped to Current Tenant
+  const members = useLiveQuery(
+    () => (fellowshipId ? db.members.where('fellowship_id').equals(fellowshipId).toArray() : []),
+    [fellowshipId]
+  ) || [];
+
+  const events = useLiveQuery(
+    () => (fellowshipId ? db.events.where('fellowship_id').equals(fellowshipId).toArray() : []),
+    [fellowshipId]
+  ) || [];
+
+  const sessions = useLiveQuery(
+    () => (fellowshipId ? db.sessions.where('fellowship_id').equals(fellowshipId).toArray() : []),
+    [fellowshipId]
+  ) || [];
+
+  const attendanceRecords = useLiveQuery(async () => {
+    if (!fellowshipId || sessions.length === 0) return [];
+    const sessionIds = sessions.map(s => s.id);
+    return db.attendance_records.where('session_id').anyOf(sessionIds).toArray();
+  }, [fellowshipId, sessions]) || [];
 
   // Active Open Session
   const activeSession = useMemo(() => {
@@ -69,23 +69,26 @@ function AdminApp() {
 
   // Compute Missing Members dynamically
   useEffect(() => {
-    if (!isInitialized) return;
-    computeInactivityAlerts(DEFAULT_FELLOWSHIP_ID, undefined, inactivityThreshold).then(alerts => {
+    if (!fellowshipId) return;
+    computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold).then(alerts => {
       setInactivityAlerts(alerts);
     });
-  }, [isInitialized, members, sessions, attendanceRecords, inactivityThreshold]);
+  }, [fellowshipId, members, sessions, attendanceRecords, inactivityThreshold]);
 
   const handleCloseSession = async (sessionId: string) => {
-    if (window.confirm('End this service session? Self-service phone check-in will be closed.')) {
+    if (window.confirm('End this service session? Self-service check-in will be closed.')) {
       await db.sessions.update(sessionId, {
         status: 'closed',
         closed_at: new Date().toISOString(),
       });
-      computeInactivityAlerts(DEFAULT_FELLOWSHIP_ID, undefined, inactivityThreshold).then(setInactivityAlerts);
+      if (fellowshipId) {
+        computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold).then(setInactivityAlerts);
+      }
     }
   };
 
-  if (!isInitialized) {
+  // 1. LOADING SCREEN
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-4" />
@@ -94,7 +97,12 @@ function AdminApp() {
     );
   }
 
-  // 1. KIOSK MODE: Pass-the-Phone Circulating Check-in
+  // 2. AUTH SCREEN: Dual Username/Email Sign-In & Multi-Tenant Sign-Up
+  if (!isAuthenticated || !fellowship || !user) {
+    return <AuthView />;
+  }
+
+  // 3. KIOSK MODE: Pass-the-Phone Circulating Check-in
   if (isKioskMode) {
     return (
       <KioskCheckIn
@@ -103,28 +111,14 @@ function AdminApp() {
         members={members}
         attendanceRecords={attendanceRecords}
         onExitKiosk={() => setIsKioskMode(false)}
-        pinCode={fellowship?.pin_code || '1234'}
       />
     );
   }
 
-  // 2. LOGIN / SETUP SCREEN: Comes before the admin dashboard
-  if (!isLoggedIn) {
-    return (
-      <LoginView
-        fellowship={fellowship || null}
-        activeSession={activeSession}
-        activeEvent={activeEvent}
-        onLoginSuccess={() => setIsLoggedIn(true)}
-        onLaunchKioskDirect={() => setIsKioskMode(true)}
-      />
-    );
-  }
+  const fellowshipName = fellowship.name;
+  const fellowshipSlug = fellowship.slug;
 
-  const fellowshipName = fellowship?.name || 'My Fellowship';
-  const fellowshipSlug = fellowship?.slug || '';
-
-  // 3. ADMIN HUB: Black & Yellow Theme with Event-First Flow
+  // 4. ADMIN HUB: Black & Yellow Theme with Event-First Flow
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-yellow-400 selection:text-black">
       <Navbar
@@ -132,7 +126,8 @@ function AdminApp() {
         setActiveTab={setActiveTab}
         missingCount={inactivityAlerts.length}
         fellowshipName={fellowshipName}
-        onLogout={() => setIsLoggedIn(false)}
+        adminUsername={user.username}
+        onLogout={logout}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 pb-24 sm:pb-12">
@@ -161,7 +156,7 @@ function AdminApp() {
 
         {activeTab === 'events' && (
           <EventsView
-            fellowshipId={DEFAULT_FELLOWSHIP_ID}
+            fellowshipId={fellowshipId}
             events={events}
             sessions={sessions}
             members={members}
@@ -177,7 +172,7 @@ function AdminApp() {
 
         {activeTab === 'people' && (
           <MemberManagement
-            fellowshipId={DEFAULT_FELLOWSHIP_ID}
+            fellowshipId={fellowshipId}
             fellowshipName={fellowshipName}
             members={members}
             attendanceRecords={attendanceRecords}
@@ -196,7 +191,7 @@ function AdminApp() {
 
         {activeTab === 'settings' && (
           <SettingsView
-            fellowship={fellowship || null}
+            fellowship={fellowship}
             onRefresh={() => {}}
           />
         )}
@@ -211,14 +206,16 @@ function JoinRoute() {
   return <JoinView slug={slug} />;
 }
 
-/** Root App with Routing */
+/** Root App with Routing and AuthProvider */
 export function App() {
   return (
     <HashRouter>
-      <Routes>
-        <Route path="/join/:slug" element={<JoinRoute />} />
-        <Route path="/*" element={<AdminApp />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/join/:slug" element={<JoinRoute />} />
+          <Route path="/*" element={<AdminApp />} />
+        </Routes>
+      </AuthProvider>
     </HashRouter>
   );
 }

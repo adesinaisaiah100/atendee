@@ -25,25 +25,76 @@ export async function flushSyncQueue(): Promise<{ syncedCount: number; errors: a
   if (isSupabaseConfigured()) {
     for (const item of queue) {
       try {
-        if (item.type === 'attendance_record' && item.action === 'insert') {
-          const { error } = await supabase
-            .from('attendance_records')
-            .upsert(item.payload, { onConflict: 'session_id,member_id' });
-          if (error) throw error;
-        } else if (item.type === 'pending_member' && item.action === 'insert') {
-          const { error } = await supabase.from('pending_members').insert(item.payload);
-          if (error) throw error;
-        } else if (item.type === 'member' && item.action === 'insert') {
-          const { error } = await supabase.from('members').insert(item.payload);
-          if (error) throw error;
-        } else if (item.type === 'session' && item.action === 'update') {
-          const { error } = await supabase.from('sessions').update(item.payload).eq('id', item.payload.id);
-          if (error) throw error;
+        if (item.type === 'attendance_record') {
+          if (item.action === 'insert' || item.action === 'update') {
+            const { error } = await supabase
+              .from('attendance_records')
+              .upsert(item.payload, { onConflict: 'session_id,member_id' });
+            if (error) throw error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase.from('attendance_records').delete().eq('id', item.payload.id);
+            if (error) throw error;
+          }
+        } else if (item.type === 'pending_member') {
+          if (item.action === 'insert') {
+            const { error } = await supabase.from('pending_members').insert(item.payload);
+            if (error) throw error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase.from('pending_members').update(item.payload).eq('id', item.payload.id);
+            if (error) throw error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase.from('pending_members').delete().eq('id', item.payload.id);
+            if (error) throw error;
+          }
+        } else if (item.type === 'member') {
+          if (item.action === 'insert') {
+            const { error } = await supabase.from('members').insert(item.payload);
+            if (error) throw error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase.from('members').update(item.payload).eq('id', item.payload.id);
+            if (error) throw error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase.from('members').delete().eq('id', item.payload.id);
+            if (error) throw error;
+          }
+        } else if (item.type === 'session') {
+          if (item.action === 'insert') {
+            const { error } = await supabase.from('sessions').insert(item.payload);
+            if (error) throw error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase.from('sessions').update(item.payload).eq('id', item.payload.id);
+            if (error) throw error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase.from('sessions').delete().eq('id', item.payload.id);
+            if (error) throw error;
+          }
+        } else if (item.type === 'event') {
+          if (item.action === 'insert') {
+            const { error } = await supabase.from('events').insert(item.payload);
+            if (error) throw error;
+          } else if (item.action === 'update') {
+            const { error } = await supabase.from('events').update(item.payload).eq('id', item.payload.id);
+            if (error) throw error;
+          } else if (item.action === 'delete') {
+            const { error } = await supabase.from('events').delete().eq('id', item.payload.id);
+            if (error) throw error;
+          }
+        } else if (item.type === 'fellowship') {
+          if (item.action === 'insert' || item.action === 'update') {
+            const { error } = await supabase.from('fellowships').upsert(item.payload);
+            if (error) throw error;
+          }
+        } else if (item.type === 'term') {
+          if (item.action === 'insert' || item.action === 'update') {
+            const { error } = await supabase.from('terms').upsert(item.payload);
+            if (error) throw error;
+          }
         }
 
         if (item.id) await db.sync_queue.delete(item.id);
         syncedCount++;
       } catch (err) {
+        console.error('Sync item error:', item, err);
         errors.push({ item, err });
       }
     }
@@ -55,6 +106,94 @@ export async function flushSyncQueue(): Promise<{ syncedCount: number; errors: a
   }
 
   return { syncedCount, errors };
+}
+
+/**
+ * Hydrate tenant data from Supabase into local Dexie store
+ */
+export async function hydrateFellowshipData(fellowshipId: string): Promise<void> {
+  if (!fellowshipId || !isSupabaseConfigured()) return;
+
+  try {
+    // 1. Fetch Fellowship
+    const { data: fData } = await supabase
+      .from('fellowships')
+      .select('*')
+      .eq('id', fellowshipId)
+      .maybeSingle();
+
+    if (fData) {
+      await db.fellowships.put({
+        id: fData.id,
+        name: fData.name,
+        slug: fData.slug,
+        created_at: fData.created_at,
+      });
+    }
+
+    // 2. Fetch Members
+    const { data: membersData } = await supabase
+      .from('members')
+      .select('*')
+      .eq('fellowship_id', fellowshipId);
+
+    if (membersData && membersData.length > 0) {
+      await db.members.bulkPut(membersData);
+    }
+
+    // 3. Fetch Events
+    const { data: eventsData } = await supabase
+      .from('events')
+      .select('*')
+      .eq('fellowship_id', fellowshipId);
+
+    if (eventsData && eventsData.length > 0) {
+      await db.events.bulkPut(eventsData);
+    }
+
+    // 4. Fetch Sessions
+    const { data: sessionsData } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('fellowship_id', fellowshipId);
+
+    if (sessionsData && sessionsData.length > 0) {
+      await db.sessions.bulkPut(sessionsData);
+
+      const sessionIds = sessionsData.map(s => s.id);
+      // 5. Fetch Attendance Records for these sessions
+      const { data: attData } = await supabase
+        .from('attendance_records')
+        .select('*')
+        .in('session_id', sessionIds);
+
+      if (attData && attData.length > 0) {
+        await db.attendance_records.bulkPut(attData);
+      }
+    }
+
+    // 6. Fetch Terms
+    const { data: termsData } = await supabase
+      .from('terms')
+      .select('*')
+      .eq('fellowship_id', fellowshipId);
+
+    if (termsData && termsData.length > 0) {
+      await db.terms.bulkPut(termsData);
+    }
+
+    // 7. Fetch Pending Members
+    const { data: pendingData } = await supabase
+      .from('pending_members')
+      .select('*')
+      .eq('fellowship_id', fellowshipId);
+
+    if (pendingData && pendingData.length > 0) {
+      await db.pending_members.bulkPut(pendingData);
+    }
+  } catch (err) {
+    console.error('Hydration error for fellowship', fellowshipId, err);
+  }
 }
 
 // 1. Optimistic local check-in

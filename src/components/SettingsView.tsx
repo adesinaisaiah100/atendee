@@ -7,14 +7,17 @@ import {
   Download,
   Link as LinkIcon,
   Copy,
+  User,
+  LogOut,
   Mail,
-  KeyRound,
+  AtSign,
 } from 'lucide-react';
 import type { Fellowship } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
 import { generateSlug } from '../lib/codeGenerator';
 import { exportAllMembersAttendanceRateCSV } from '../lib/exportUtils';
+import { useAuth } from '../lib/AuthContext';
 
 interface SettingsViewProps {
   fellowship: Fellowship | null;
@@ -25,9 +28,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   fellowship,
   onRefresh,
 }) => {
+  const { user, logout } = useAuth();
   const [name, setName] = useState(fellowship?.name || 'My Fellowship');
-  const [pin, setPin] = useState(fellowship?.pin_code || '1234');
-  const [recoveryEmail, setRecoveryEmail] = useState(fellowship?.recovery_email || '');
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -51,14 +53,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ...fellowship,
       name: trimmedName,
       slug: updatedSlug,
-      pin_code: pin.length === 4 ? pin : '1234',
-      recovery_email: recoveryEmail.trim() || undefined,
     };
 
     await db.fellowships.put(updated);
     await queueMutation('fellowship', 'update', updated);
 
-    setSavedMessage('Saved successfully!');
+    setSavedMessage('Organization name updated successfully!');
     setTimeout(() => setSavedMessage(null), 3000);
     onRefresh();
   };
@@ -66,7 +66,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleClearAllData = async () => {
     if (
       window.confirm(
-        '⚠️ Are you sure you want to clear all data? This will reset all events, members, and attendance records for a clean slate.'
+        '⚠️ Are you sure you want to clear local cache data? All offline records will be reset on this device.'
       )
     ) {
       await db.events.clear();
@@ -76,7 +76,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       await db.pending_members.clear();
       await db.sync_queue.clear();
       onRefresh();
-      alert('All local events and attendance data have been cleared.');
+      alert('Local cached data has been cleared.');
     }
   };
 
@@ -85,11 +85,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div>
         <h2 className="text-2xl font-black text-white">Settings &amp; Reports</h2>
         <p className="text-xs text-zinc-400 mt-0.5">
-          Manage your organization name, PIN recovery, member join link, and download master attendance.
+          Manage your organization name, admin account, member join link, and download master attendance.
         </p>
       </div>
 
-      {/* 1. Self-Registration Join Link */}
+      {/* 1. Admin Profile Card */}
+      <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-yellow-400/10 text-yellow-400 border border-yellow-400/20 flex items-center justify-center font-black">
+              <User className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white">
+                  {user?.username || 'Admin User'}
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-yellow-400 text-black">
+                  Admin
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-zinc-400 mt-0.5">
+                <span className="flex items-center gap-1">
+                  <AtSign className="w-3.5 h-3.5 text-yellow-400" />
+                  <span>{user?.username || 'admin'}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <Mail className="w-3.5 h-3.5 text-yellow-400" />
+                  <span>{user?.email || 'email'}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={logout}
+            className="px-4 py-2.5 bg-zinc-800 hover:bg-rose-950/60 hover:text-rose-300 text-zinc-300 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 border border-zinc-700 hover:border-rose-800/60 active:scale-95 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Self-Registration Join Link */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -116,7 +156,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 2. Export Master CSV Spreadsheet */}
+      {/* 3. Export Master CSV Spreadsheet */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -137,10 +177,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </button>
       </div>
 
-      {/* 3. General Profile & Kiosk PIN */}
+      {/* 4. General Profile */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
         <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-yellow-400" /> Organization Profile &amp; PIN Security
+          <Building2 className="w-5 h-5 text-yellow-400" /> Organization Profile
         </h3>
 
         {savedMessage && (
@@ -163,40 +203,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <KeyRound className="w-3.5 h-3.5 text-yellow-400" />
-                <span>Admin Exit PIN (4 digits)</span>
-              </label>
-              <input
-                type="password"
-                maxLength={4}
-                required
-                value={pin}
-                onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="1234"
-                className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white font-mono text-center tracking-widest text-base focus:outline-none transition"
-              />
-              <span className="text-[11px] text-zinc-500 block mt-1">Protects admin view when passing phone</span>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-yellow-400" />
-                <span>PIN Recovery Email</span>
-              </label>
-              <input
-                type="email"
-                value={recoveryEmail}
-                onChange={e => setRecoveryEmail(e.target.value)}
-                placeholder="e.g. admin@grace.org"
-                className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none transition"
-              />
-              <span className="text-[11px] text-zinc-500 block mt-1">Used to safely recover forgotten PIN</span>
-            </div>
-          </div>
-
           <div className="pt-1">
             <button
               type="submit"
@@ -208,11 +214,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </form>
       </div>
 
-      {/* 4. Danger Zone */}
+      {/* 5. Danger Zone */}
       <div className="bg-zinc-900 border border-rose-950 p-5 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-bold text-rose-400">Reset Local Database</div>
-          <div className="text-xs text-zinc-400">Clear all local events, members, and sessions</div>
+          <div className="text-sm font-bold text-rose-400">Reset Local Cache</div>
+          <div className="text-xs text-zinc-400">Clear offline local storage on this browser</div>
         </div>
 
         <button

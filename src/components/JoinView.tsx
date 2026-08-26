@@ -67,16 +67,15 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
             .maybeSingle();
 
           if (data && !sbError) {
-            found = {
+            const fellowshipRecord: Fellowship = {
               id: data.id,
               name: data.name,
               slug: data.slug || slug.toLowerCase(),
-              pin_code: data.pin_code,
-              recovery_email: data.recovery_email,
               created_at: data.created_at,
             };
+            found = fellowshipRecord;
             // Cache locally in Dexie
-            await db.fellowships.put(found);
+            await db.fellowships.put(fellowshipRecord);
           }
         }
 

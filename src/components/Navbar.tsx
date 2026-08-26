@@ -15,6 +15,7 @@ interface NavbarProps {
   setActiveTab: (tab: MainTab) => void;
   missingCount: number;
   fellowshipName: string;
+  adminUsername?: string;
   onLogout: () => void;
 }
 
@@ -23,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   missingCount,
   fellowshipName,
+  adminUsername,
   onLogout,
 }) => {
   const navItems: {
@@ -50,9 +52,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <AtendeeLogo size="sm" showText={true} />
               <div className="hidden sm:block border-l border-zinc-800 pl-3">
-                <span className="text-xs font-bold text-zinc-400 truncate block max-w-[200px]">
+                <span className="text-xs font-bold text-zinc-300 truncate block max-w-[200px]">
                   {fellowshipName}
                 </span>
+                {adminUsername && (
+                  <span className="text-[10px] font-mono text-yellow-400/80 truncate block">
+                    @{adminUsername}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -89,10 +96,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onLogout}
-                className="p-2 sm:p-2.5 text-zinc-400 hover:text-white rounded-xl hover:bg-zinc-900 border border-zinc-800/60 transition cursor-pointer"
-                title="Lock Admin Hub"
+                className="p-2 sm:p-2.5 text-zinc-400 hover:text-white rounded-xl hover:bg-zinc-900 border border-zinc-800/60 transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />
+                <span className="hidden md:inline">Sign Out</span>
               </button>
             </div>
           </div>

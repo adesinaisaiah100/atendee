@@ -8,9 +8,16 @@ export interface Fellowship {
   id: string;
   name: string;
   slug: string; // URL-safe identifier e.g. "grace-assembly"
-  pin_code: string; // 4-digit PIN for kiosk lock
-  recovery_email?: string; // For admin PIN recovery
   created_at: string;
+}
+
+export interface AdminUser {
+  id: string;
+  fellowship_id: string;
+  username: string;
+  email: string;
+  role?: string;
+  created_at?: string;
 }
 
 export interface Member {

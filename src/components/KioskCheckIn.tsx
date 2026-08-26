@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ConfirmModal } from './ConfirmModal';
-import { AdminPinModal } from './AdminPinModal';
+import { AdminPasswordModal } from './AdminPasswordModal';
 import { AtendeeLogo } from './AtendeeLogo';
 import type { Member, Session, EventTemplate, AttendanceRecord } from '../types';
 import { checkInMemberOptimistic } from '../lib/syncEngine';
@@ -21,7 +21,6 @@ interface KioskCheckInProps {
   members: Member[];
   attendanceRecords: AttendanceRecord[];
   onExitKiosk: () => void;
-  pinCode?: string;
 }
 
 export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
@@ -30,7 +29,6 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   members,
   attendanceRecords,
   onExitKiosk,
-  pinCode = '1234',
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -415,15 +413,14 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
         isCheckingIn={isCheckingIn}
       />
 
-      {/* Admin PIN Exit Modal */}
-      <AdminPinModal
+      {/* Admin Password Exit Modal */}
+      <AdminPasswordModal
         isOpen={isPinOpen}
         onClose={() => setIsPinOpen(false)}
         onSuccess={() => {
           setIsPinOpen(false);
           onExitKiosk();
         }}
-        correctPin={pinCode}
       />
     </div>
   );
