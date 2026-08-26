@@ -125,6 +125,9 @@ function AdminApp() {
     return <AuthView />;
   }
 
+  const fellowshipName = fellowship.name;
+  const fellowshipSlug = fellowship.slug;
+
   // 3. KIOSK MODE: Pass-the-Phone Circulating Check-in
   if (isKioskMode) {
     return (
@@ -133,13 +136,15 @@ function AdminApp() {
         event={activeEvent}
         members={members}
         attendanceRecords={attendanceRecords}
+        fellowshipName={fellowshipName}
+        fellowshipId={fellowship.id}
+        onRefresh={() => {
+          if (fellowshipId) hydrateFellowshipData(fellowshipId).catch(console.warn);
+        }}
         onExitKiosk={() => setIsKioskMode(false)}
       />
     );
   }
-
-  const fellowshipName = fellowship.name;
-  const fellowshipSlug = fellowship.slug;
 
   const handleCopyLink = () => {
     const url = `${window.location.origin}${window.location.pathname}#/join/${fellowshipSlug}`;
