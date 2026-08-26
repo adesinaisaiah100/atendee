@@ -223,17 +223,34 @@ export const EventsView: React.FC<EventsViewProps> = ({
   };
 
   const handleDeleteEvent = async (eventId: string, eName: string) => {
-    if (window.confirm(`Delete "${eName}"? All its sessions and attendance records will be removed.`)) {
+    if (window.confirm(`Delete "${eName}"? All its recorded sessions and attendance records will be permanently removed.`)) {
+      // 1. Delete associated local records
+      const relatedSessions = await db.sessions.where('event_id').equals(eventId).toArray();
+      const sessionIds = relatedSessions.map(s => s.id);
+      if (sessionIds.length > 0) {
+        await db.attendance_records.where('session_id').anyOf(sessionIds).delete();
+        await db.sessions.where('event_id').equals(eventId).delete();
+      }
       await db.events.delete(eventId);
       await queueMutation('event', 'delete', { id: eventId });
+
+      // 2. Direct cloud delete (Postgres ON DELETE CASCADE handles child rows)
       if (isSupabaseConfigured()) {
         try {
-          await supabase.from('events').delete().eq('id', eventId);
+          if (sessionIds.length > 0) {
+            await supabase.from('attendance_records').delete().in('session_id', sessionIds);
+            await supabase.from('sessions').delete().eq('event_id', eventId);
+          }
+          const { error } = await supabase.from('events').delete().eq('id', eventId);
+          if (error) console.error('Cloud delete event error:', error);
         } catch (err) {
           console.warn('Cloud delete event error:', err);
         }
       }
-      setSelectedEventId(null);
+
+      if (selectedEventId === eventId) {
+        setSelectedEventId(null);
+      }
       onRefresh();
     }
   };
@@ -558,11 +575,24 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     <div className="w-11 h-11 rounded-2xl bg-yellow-400/10 text-yellow-400 flex items-center justify-center border border-yellow-400/20">
                       <Calendar className="w-5 h-5" />
                     </div>
-                    {isLive && (
-                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-yellow-400 text-black">
-                        LIVE NOW
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {isLive && (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-yellow-400 text-black">
+                          LIVE NOW
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteEvent(ev.id, ev.name);
+                        }}
+                        className="p-2 text-zinc-500 hover:text-rose-400 rounded-xl hover:bg-zinc-800 transition cursor-pointer"
+                        title="Delete Event"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <h3 className="text-lg font-black text-white mb-1">{ev.name}</h3>

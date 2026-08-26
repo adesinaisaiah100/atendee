@@ -211,65 +211,128 @@ export async function hydrateFellowshipData(fellowshipId: string): Promise<void>
       });
     }
 
-    // 2. Fetch Members
+    // 2. Reconcile Members
     const { data: membersData } = await supabase
       .from('members')
       .select('*')
       .eq('fellowship_id', fellowshipId);
 
-    if (membersData && membersData.length > 0) {
-      await db.members.bulkPut(membersData);
+    if (membersData !== null) {
+      const cloudMemberIds = new Set(membersData.map(m => m.id));
+      const localMembers = await db.members.where('fellowship_id').equals(fellowshipId).toArray();
+      for (const lm of localMembers) {
+        if (!cloudMemberIds.has(lm.id)) {
+          await db.members.delete(lm.id);
+        }
+      }
+      if (membersData.length > 0) {
+        await db.members.bulkPut(membersData);
+      }
     }
 
-    // 3. Fetch Events
+    // 3. Reconcile Events
     const { data: eventsData } = await supabase
       .from('events')
       .select('*')
       .eq('fellowship_id', fellowshipId);
 
-    if (eventsData && eventsData.length > 0) {
-      await db.events.bulkPut(eventsData);
+    if (eventsData !== null) {
+      const cloudEventIds = new Set(eventsData.map(e => e.id));
+      const localEvents = await db.events.where('fellowship_id').equals(fellowshipId).toArray();
+      for (const le of localEvents) {
+        if (!cloudEventIds.has(le.id)) {
+          await db.events.delete(le.id);
+        }
+      }
+      if (eventsData.length > 0) {
+        await db.events.bulkPut(eventsData);
+      }
     }
 
-    // 4. Fetch Sessions
+    // 4. Reconcile Sessions
     const { data: sessionsData } = await supabase
       .from('sessions')
       .select('*')
       .eq('fellowship_id', fellowshipId);
 
-    if (sessionsData && sessionsData.length > 0) {
-      await db.sessions.bulkPut(sessionsData);
+    if (sessionsData !== null) {
+      const cloudSessionIds = new Set(sessionsData.map(s => s.id));
+      const localSessions = await db.sessions.where('fellowship_id').equals(fellowshipId).toArray();
+      for (const ls of localSessions) {
+        if (!cloudSessionIds.has(ls.id)) {
+          await db.sessions.delete(ls.id);
+        }
+      }
+      if (sessionsData.length > 0) {
+        await db.sessions.bulkPut(sessionsData);
+      }
 
       const sessionIds = sessionsData.map(s => s.id);
-      // 5. Fetch Attendance Records for these sessions
-      const { data: attData } = await supabase
-        .from('attendance_records')
-        .select('*')
-        .in('session_id', sessionIds);
+      // 5. Reconcile Attendance Records for these sessions
+      if (sessionIds.length > 0) {
+        const { data: attData } = await supabase
+          .from('attendance_records')
+          .select('*')
+          .in('session_id', sessionIds);
 
-      if (attData && attData.length > 0) {
-        await db.attendance_records.bulkPut(attData);
+        if (attData !== null) {
+          const cloudAttIds = new Set(attData.map(a => a.id));
+          const localAtt = await db.attendance_records.where('session_id').anyOf(sessionIds).toArray();
+          for (const la of localAtt) {
+            if (!cloudAttIds.has(la.id)) {
+              await db.attendance_records.delete(la.id);
+            }
+          }
+          if (attData.length > 0) {
+            await db.attendance_records.bulkPut(attData);
+          }
+        }
+      } else {
+        // No cloud sessions exist, clear local orphan records
+        const localSessions = await db.sessions.where('fellowship_id').equals(fellowshipId).toArray();
+        const orphanSessionIds = localSessions.map(s => s.id);
+        if (orphanSessionIds.length > 0) {
+          await db.attendance_records.where('session_id').anyOf(orphanSessionIds).delete();
+        }
       }
     }
 
-    // 6. Fetch Terms
+    // 6. Reconcile Terms
     const { data: termsData } = await supabase
       .from('terms')
       .select('*')
       .eq('fellowship_id', fellowshipId);
 
-    if (termsData && termsData.length > 0) {
-      await db.terms.bulkPut(termsData);
+    if (termsData !== null) {
+      const cloudTermIds = new Set(termsData.map(t => t.id));
+      const localTerms = await db.terms.where('fellowship_id').equals(fellowshipId).toArray();
+      for (const lt of localTerms) {
+        if (!cloudTermIds.has(lt.id)) {
+          await db.terms.delete(lt.id);
+        }
+      }
+      if (termsData.length > 0) {
+        await db.terms.bulkPut(termsData);
+      }
     }
 
-    // 7. Fetch Pending Members
+    // 7. Reconcile Pending Members
     const { data: pendingData } = await supabase
       .from('pending_members')
       .select('*')
       .eq('fellowship_id', fellowshipId);
 
-    if (pendingData && pendingData.length > 0) {
-      await db.pending_members.bulkPut(pendingData);
+    if (pendingData !== null) {
+      const cloudPendingIds = new Set(pendingData.map(p => p.id));
+      const localPending = await db.pending_members.where('fellowship_id').equals(fellowshipId).toArray();
+      for (const lp of localPending) {
+        if (!cloudPendingIds.has(lp.id)) {
+          await db.pending_members.delete(lp.id);
+        }
+      }
+      if (pendingData.length > 0) {
+        await db.pending_members.bulkPut(pendingData);
+      }
     }
   } catch (err) {
     console.error('Hydration error for fellowship', fellowshipId, err);
