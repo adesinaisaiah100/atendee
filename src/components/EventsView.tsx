@@ -16,6 +16,7 @@ import {
 import type { EventTemplate, Session, Member, AttendanceRecord } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { exportSessionCSV, downloadCSV } from '../lib/exportUtils';
 
 interface EventsViewProps {
@@ -190,7 +191,45 @@ export const EventsView: React.FC<EventsViewProps> = ({
     if (window.confirm(`Delete "${eName}"? All its sessions and attendance records will be removed.`)) {
       await db.events.delete(eventId);
       await queueMutation('event', 'delete', { id: eventId });
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('events').delete().eq('id', eventId);
+        } catch (err) {
+          console.warn('Cloud delete event error:', err);
+        }
+      }
       setSelectedEventId(null);
+      onRefresh();
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string, sessionDate: string) => {
+    if (
+      window.confirm(
+        `Are you sure you want to delete the attendance session from ${sessionDate}? All check-in records for this date will be permanently deleted.`
+      )
+    ) {
+      // 1. Delete local records
+      await db.attendance_records.where('session_id').equals(sessionId).delete();
+      await db.sessions.delete(sessionId);
+
+      // 2. Queue mutation
+      await queueMutation('session', 'delete', { id: sessionId });
+
+      // 3. Direct cloud delete
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('attendance_records').delete().eq('session_id', sessionId);
+          await supabase.from('sessions').delete().eq('id', sessionId);
+        } catch (err) {
+          console.warn('Cloud delete session error:', err);
+        }
+      }
+
+      if (expandedSessionId === sessionId) {
+        setExpandedSessionId(null);
+      }
+
       onRefresh();
     }
   };
@@ -352,9 +391,18 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setExpandedSessionId(isExpanded ? null : sess.id)}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition"
+                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition cursor-pointer"
                       >
                         {isExpanded ? 'Hide Names' : 'View Names'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSession(sess.id, sess.session_date)}
+                        className="p-1.5 bg-zinc-800/80 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-400 rounded-xl border border-zinc-800 hover:border-rose-800/50 transition cursor-pointer"
+                        title="Delete Session & Attendance Records"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
