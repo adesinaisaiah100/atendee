@@ -478,7 +478,8 @@ export async function resolvePendingMemberAction(
 export async function computeInactivityAlerts(
   fellowshipId: string,
   eventId?: string,
-  missedThreshold = 3
+  missedThreshold = 1,
+  includeOpenSessions = true
 ): Promise<InactivityAlert[]> {
   const activeMembers = await db.members
     .where('fellowship_id')
@@ -487,7 +488,7 @@ export async function computeInactivityAlerts(
     .toArray();
 
   let sessionsQuery = db.sessions.where('fellowship_id').equals(fellowshipId);
-  if (eventId) {
+  if (eventId && eventId !== 'all') {
     sessionsQuery = db.sessions.where('event_id').equals(eventId);
   }
 
@@ -497,8 +498,11 @@ export async function computeInactivityAlerts(
     (a, b) => new Date(b.session_date).getTime() - new Date(a.session_date).getTime()
   );
 
-  const pastClosedSessions = sortedSessions.filter(s => s.status === 'closed');
-  const recentSessions = pastClosedSessions.slice(0, missedThreshold);
+  const eligibleSessions = includeOpenSessions
+    ? sortedSessions
+    : sortedSessions.filter(s => s.status === 'closed');
+
+  const recentSessions = eligibleSessions.slice(0, missedThreshold);
 
   if (recentSessions.length === 0) return [];
 
@@ -520,12 +524,12 @@ export async function computeInactivityAlerts(
 
     if (consecutiveMissed >= Math.min(missedThreshold, recentSessions.length)) {
       // Find latest attended date
-      const attendedSessions = pastClosedSessions
+      const attendedSessions = eligibleSessions
         .filter(s => attendedSessionIds.has(s.id))
         .sort((a, b) => new Date(b.session_date).getTime() - new Date(a.session_date).getTime());
 
       const lastAttendedDate = attendedSessions.length > 0 ? attendedSessions[0].session_date : null;
-      const totalPossible = pastClosedSessions.length;
+      const totalPossible = eligibleSessions.length;
       const totalAttended = attendedSessions.length;
       const ratePct = totalPossible > 0 ? Math.round((totalAttended / totalPossible) * 100) : 0;
 

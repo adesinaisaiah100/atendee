@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './lib/db';
-import { flushSyncQueue, hydrateFellowshipData, computeInactivityAlerts } from './lib/syncEngine';
+import { flushSyncQueue, hydrateFellowshipData, computeInactivityAlerts, queueMutation } from './lib/syncEngine';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { Navbar, type MainTab } from './components/Navbar';
 import { AuthView } from './components/AuthView';
@@ -20,7 +21,7 @@ function AdminApp() {
   const [activeTab, setActiveTab] = useState<MainTab>('events');
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
-  const [inactivityThreshold, setInactivityThreshold] = useState(3);
+  const [inactivityThreshold, setInactivityThreshold] = useState(1);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -93,19 +94,37 @@ function AdminApp() {
   // Compute Missing Members dynamically
   useEffect(() => {
     if (!fellowshipId) return;
-    computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold).then(alerts => {
+    computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold, true).then(alerts => {
       setInactivityAlerts(alerts);
     });
   }, [fellowshipId, members, sessions, attendanceRecords, inactivityThreshold]);
 
   const handleCloseSession = async (sessionId: string) => {
     if (window.confirm('End this service session? Self-service check-in will be closed.')) {
+      const closedAt = new Date().toISOString();
       await db.sessions.update(sessionId, {
         status: 'closed',
-        closed_at: new Date().toISOString(),
+        closed_at: closedAt,
       });
+      await queueMutation('session', 'update', {
+        id: sessionId,
+        status: 'closed',
+        closed_at: closedAt,
+      });
+
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from('sessions').update({
+            status: 'closed',
+            closed_at: closedAt,
+          }).eq('id', sessionId);
+        } catch (err) {
+          console.warn('Cloud close session error:', err);
+        }
+      }
+
       if (fellowshipId) {
-        computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold).then(setInactivityAlerts);
+        computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold, true).then(setInactivityAlerts);
       }
     }
   };
@@ -224,7 +243,9 @@ function AdminApp() {
             members={members}
             attendanceRecords={attendanceRecords}
             activeSession={activeSession}
-            onRefresh={() => {}}
+            onRefresh={() => {
+              if (fellowshipId) hydrateFellowshipData(fellowshipId).catch(console.warn);
+            }}
             onLaunchKiosk={() => setIsKioskMode(true)}
             onCloseSession={handleCloseSession}
             isCreateModalOpen={isCreateEventOpen}
@@ -239,22 +260,34 @@ function AdminApp() {
             members={members}
             attendanceRecords={attendanceRecords}
             sessions={sessions}
-            onRefresh={() => {}}
+            onRefresh={() => {
+              if (fellowshipId) hydrateFellowshipData(fellowshipId).catch(console.warn);
+            }}
           />
         )}
 
         {activeTab === 'missing' && (
           <MissingMembersView
+            fellowshipId={fellowshipId}
+            events={events}
+            sessions={sessions}
+            members={members}
+            attendanceRecords={attendanceRecords}
             inactivityAlerts={inactivityAlerts}
             inactivityThreshold={inactivityThreshold}
             setInactivityThreshold={setInactivityThreshold}
+            onRefresh={() => {
+              if (fellowshipId) hydrateFellowshipData(fellowshipId).catch(console.warn);
+            }}
           />
         )}
 
         {activeTab === 'settings' && (
           <SettingsView
             fellowship={fellowship}
-            onRefresh={() => {}}
+            onRefresh={() => {
+              if (fellowshipId) hydrateFellowshipData(fellowshipId).catch(console.warn);
+            }}
           />
         )}
       </main>
