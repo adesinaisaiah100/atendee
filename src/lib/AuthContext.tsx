@@ -80,20 +80,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (identifier: string, password: string) => {
-    setIsLoading(true);
-    try {
-      const res = await loginAdmin(identifier, password);
-      if (res.success && res.data) {
-        setUser(res.data.user);
-        setFellowship(res.data.fellowship);
-        // Hydrate all tenant records from Supabase in background
-        hydrateFellowshipData(res.data.fellowship.id).catch(console.warn);
-        return { success: true };
-      }
-      return { success: false, error: res.error };
-    } finally {
-      setIsLoading(false);
+    const res = await loginAdmin(identifier, password);
+    if (res.success && res.data) {
+      setUser(res.data.user);
+      setFellowship(res.data.fellowship);
+      // Hydrate all tenant records from Supabase in background
+      hydrateFellowshipData(res.data.fellowship.id).catch(console.warn);
+      return { success: true };
     }
+    return { success: false, error: res.error };
   };
 
   const signup = async (
@@ -102,18 +97,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     password: string
   ) => {
-    setIsLoading(true);
-    try {
-      const res = await signUpAdmin(fellowshipName, username, email, password);
-      if (res.success && res.data) {
-        setUser(res.data.user);
-        setFellowship(res.data.fellowship);
-        return { success: true };
-      }
-      return { success: false, error: res.error };
-    } finally {
-      setIsLoading(false);
+    const res = await signUpAdmin(fellowshipName, username, email, password);
+    if (res.success && res.data) {
+      setUser(res.data.user);
+      setFellowship(res.data.fellowship);
+      return { success: true };
     }
+    return { success: false, error: res.error };
   };
 
   const logout = async () => {

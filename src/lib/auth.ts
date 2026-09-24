@@ -11,7 +11,7 @@ export interface AuthSessionData {
 }
 
 /** Helper to wrap any async operation with a strict timeout */
-async function withTimeout<T>(promise: PromiseLike<T>, ms = 3500): Promise<T | null> {
+async function withTimeout<T>(promise: PromiseLike<T>, ms = 10000): Promise<T | null> {
   let timer: any;
   const timeout = new Promise<null>(resolve => {
     timer = setTimeout(() => resolve(null), ms);
@@ -112,7 +112,7 @@ export async function signUpAdmin(
       // Check if username is already taken in cloud
       const checkRes = await withTimeout(
         supabase.from('fellowship_admins').select('id').eq('username', username).maybeSingle(),
-        3000
+        8000
       );
       if (checkRes && 'data' in checkRes && checkRes.data) {
         return { success: false, error: `The username "${username}" is already taken. Please choose another.` };
@@ -235,8 +235,15 @@ export async function loginAdmin(
             .select('email, username, fellowship_id, id')
             .eq('username', cleanUsername)
             .maybeSingle(),
-          3000
+          8000
         );
+
+        if (adminMatch === null) {
+          return {
+            success: false,
+            error: 'Connection timed out while checking username. Please check your network and try again.',
+          };
+        }
 
         if (adminMatch?.data) {
           targetEmail = (adminMatch.data as any).email;
@@ -255,8 +262,15 @@ export async function loginAdmin(
           email: targetEmail,
           password,
         }),
-        3500
+        12000
       );
+
+      if (authRes === null) {
+        return {
+          success: false,
+          error: 'Connection timed out while verifying credentials. Please check your network and try again.',
+        };
+      }
 
       if (authRes?.data?.user) {
         if (!fellowshipId) {
@@ -268,7 +282,7 @@ export async function loginAdmin(
         if (fellowshipId) {
           const fRes = await withTimeout(
             supabase.from('fellowships').select('*').eq('id', fellowshipId).maybeSingle(),
-            2500
+            8000
           );
           if (fRes?.data) {
             const fData = fRes.data as any;
@@ -336,7 +350,7 @@ export async function verifyAdminPassword(email: string, password: string): Prom
   try {
     const res = await withTimeout(
       supabase.auth.signInWithPassword({ email, password }),
-      2500
+      6000
     );
     return res ? !res.error : true;
   } catch {
