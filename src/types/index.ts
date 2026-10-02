@@ -30,6 +30,8 @@ export interface Member {
   check_in_code: string; // Unique code e.g. "GRACE-4827"
   joined_at: string;
   is_active: boolean;
+  /** True for first-timers who joined via self-registration until an admin welcomes/settles them. */
+  is_newcomer?: boolean;
   created_at: string;
 }
 

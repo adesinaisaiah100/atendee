@@ -11,6 +11,7 @@ import {
   Clock,
   Trash2,
   Phone,
+  Share2,
   MessageCircle,
   Edit3,
   Check,
@@ -23,6 +24,7 @@ import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { exportSessionCSV, downloadCSV } from '../lib/exportUtils';
+import { ShareCheckInModal } from './ShareCheckInModal';
 
 interface EventsViewProps {
   fellowshipId: string;
@@ -56,6 +58,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
   
   // Managing session in full modal
   const [managingSessionId, setManagingSessionId] = useState<string | null>(null);
+  // Sharing self check-in link/QR for a live session
+  const [shareSession, setShareSession] = useState<Session | null>(null);
   const [modalTab, setModalTab] = useState<'all' | 'present' | 'absent'>('all');
   const [modalSearch, setModalSearch] = useState('');
   const [modalDeptFilter, setModalDeptFilter] = useState('all');
@@ -417,16 +421,29 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </div>
 
             {/* Primary Action Button */}
-            <div className="w-full">
+            <div className="w-full space-y-2">
               {isLive ? (
-                <button
-                  type="button"
-                  onClick={onLaunchKiosk}
-                  className="w-full sm:w-auto px-7 py-4 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm sm:text-base rounded-full transition flex items-center justify-center gap-2.5 shadow-xl shadow-yellow-950/50 active:scale-95 cursor-pointer"
-                >
-                  <Smartphone className="w-5 h-5" />
-                  <span>Pass Phone (Check-in)</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={onLaunchKiosk}
+                    className="w-full sm:w-auto px-7 py-4 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm sm:text-base rounded-full transition flex items-center justify-center gap-2.5 shadow-xl shadow-yellow-950/50 active:scale-95 cursor-pointer"
+                  >
+                    <Smartphone className="w-5 h-5" />
+                    <span>Pass Phone (Check-in)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const live = eventSessions.find(s => s.status === 'open') || null;
+                      setShareSession(live);
+                    }}
+                    className="w-full sm:w-auto px-7 py-3.5 border border-zinc-700 hover:bg-zinc-800 text-zinc-200 font-bold text-sm rounded-full transition flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                  >
+                    <Share2 className="w-4 h-4 text-yellow-400" />
+                    <span>Share Check-in Link</span>
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -547,6 +564,17 @@ export const EventsView: React.FC<EventsViewProps> = ({
                       >
                         <FileSpreadsheet className="w-4 h-4" />
                       </button>
+
+                      {isSessionLive && (
+                        <button
+                          type="button"
+                          onClick={() => setShareSession(sess)}
+                          className="px-3 py-2 text-zinc-400 hover:text-white rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer"
+                          title="Share self check-in link & QR"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -910,6 +938,14 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </div>
           </div>
         )}
+
+        {/* Self check-in Share (QR + link) modal */}
+        <ShareCheckInModal
+          session={shareSession}
+          eventName={selectedEvent.name}
+          isOpen={shareSession !== null}
+          onClose={() => setShareSession(null)}
+        />
       </div>
     );
   }

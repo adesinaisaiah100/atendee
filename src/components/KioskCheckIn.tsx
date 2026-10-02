@@ -154,6 +154,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
         check_in_code: code,
         joined_at: new Date().toISOString().split('T')[0],
         is_active: true,
+        is_newcomer: true,
         created_at: new Date().toISOString(),
       };
 

@@ -13,6 +13,7 @@ import { MemberManagement } from './components/MemberManagement';
 import { MissingMembersView } from './components/MissingMembersView';
 import { SettingsView } from './components/SettingsView';
 import { JoinView } from './components/JoinView';
+import { CheckInView } from './components/CheckInView';
 import { InstallPrompt } from './components/InstallPrompt';
 import type { InactivityAlert } from './types';
 
@@ -304,6 +305,12 @@ function JoinRoute() {
   return <JoinView slug={slug} />;
 }
 
+/** Public Self Check-in Route Wrapper (per-session link/QR) */
+function CheckInRoute() {
+  const sessionId = window.location.hash.split('/checkin/')[1]?.split('/')[0]?.split('?')[0] || '';
+  return <CheckInView sessionId={sessionId} />;
+}
+
 /** Root App with Routing and AuthProvider */
 export function App() {
   return (
@@ -311,6 +318,7 @@ export function App() {
       <AuthProvider>
         <Routes>
           <Route path="/join/:slug" element={<JoinRoute />} />
+          <Route path="/checkin/:sessionId" element={<CheckInRoute />} />
           <Route path="/*" element={<AdminApp />} />
         </Routes>
       </AuthProvider>

@@ -46,6 +46,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
+  const [showNewOnly, setShowNewOnly] = useState(false);
   const [internalAddOpen, setInternalAddOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [viewingProfileMember, setViewingProfileMember] = useState<Member | null>(null);
@@ -72,11 +73,14 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
 
   const departments = ['all', 'Choir', 'Ushering', 'Media', 'Technical', 'Welfare', 'Bible Study', 'General'];
 
+  const newcomerCount = useMemo(() => members.filter(m => m.is_newcomer && m.is_active).length, [members]);
+
   const filteredMembers = useMemo(() => {
     return members
       .filter(m => {
         if (statusFilter === 'active' && !m.is_active) return false;
         if (statusFilter === 'inactive' && m.is_active) return false;
+        if (showNewOnly && !m.is_newcomer) return false;
         if (selectedDept !== 'all' && m.department !== selectedDept) return false;
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
@@ -90,7 +94,7 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         return true;
       })
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [members, statusFilter, selectedDept, searchQuery]);
+  }, [members, statusFilter, showNewOnly, selectedDept, searchQuery]);
 
   const handleOpenAdd = () => {
     setFullName('');
@@ -174,6 +178,20 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
       }
       onRefresh();
     }
+  };
+
+  const handleSettleNewcomer = async (member: Member) => {
+    await db.members.update(member.id, { is_newcomer: false });
+    await queueMutation('member', 'update', { id: member.id, is_newcomer: false });
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('members').update({ is_newcomer: false }).eq('id', member.id);
+      } catch (err) {
+        console.warn('Direct settle newcomer error:', err);
+      }
+    }
+    setViewingProfileMember({ ...member, is_newcomer: false });
+    onRefresh();
   };
 
   // Excel / CSV File Drop & Parse
@@ -343,6 +361,17 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
 
         {/* Department Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar w-full touch-pan-x">
+          <button
+            type="button"
+            onClick={() => setShowNewOnly(v => !v)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-black whitespace-nowrap transition cursor-pointer flex-shrink-0 ${
+              showNewOnly
+                ? 'bg-yellow-400 text-black'
+                : 'text-zinc-500 hover:text-white border border-zinc-800'
+            }`}
+          >
+            New ({newcomerCount})
+          </button>
           {departments.map(dept => (
             <button
               key={dept}
@@ -381,6 +410,11 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <div className="font-bold text-white text-xs sm:text-sm truncate flex items-center gap-1.5">
                     <span className="truncate">{member.full_name}</span>
+                    {member.is_newcomer && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black bg-yellow-400 text-black flex-shrink-0">
+                        NEW
+                      </span>
+                    )}
                     {!member.is_active && (
                       <span className="px-1.5 py-0.2 rounded text-[9px] sm:text-[10px] bg-zinc-800 text-zinc-400 flex-shrink-0">
                         Inactive
@@ -782,6 +816,21 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                   Call
                 </a>
               </div>
+            )}
+
+            {viewingProfileMember.is_newcomer ? (
+              <button
+                type="button"
+                onClick={() => handleSettleNewcomer(viewingProfileMember)}
+                className="w-full py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Welcomed — Remove NEW Tag</span>
+              </button>
+            ) : (
+              <p className="text-center text-[11px] text-zinc-500">
+                First-timer tag already cleared for this member.
+              </p>
             )}
           </div>
         </div>

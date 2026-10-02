@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS members (
   check_in_code  VARCHAR(16),
   joined_at      DATE NOT NULL DEFAULT current_date,
   is_active      BOOLEAN NOT NULL DEFAULT true,
+  is_newcomer    BOOLEAN NOT NULL DEFAULT false,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_members_fellowship ON members(fellowship_id, is_active);
