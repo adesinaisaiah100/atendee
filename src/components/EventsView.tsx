@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   Calendar,
   Plus,
-  Play,
+  ClipboardCheck,
   FileSpreadsheet,
   ChevronRight,
   ArrowLeft,
@@ -10,13 +10,11 @@ import {
   Smartphone,
   Clock,
   Trash2,
-  Sparkles,
   Phone,
   MessageCircle,
   Edit3,
   Check,
   Search,
-  Filter,
   RotateCcw,
   AlertCircle,
 } from 'lucide-react';
@@ -359,38 +357,6 @@ export const EventsView: React.FC<EventsViewProps> = ({
     }
   };
 
-  const handleClearAllSessions = async (eventId: string) => {
-    const sessionsToClear = sessions.filter(s => s.event_id === eventId);
-    if (sessionsToClear.length === 0) {
-      alert('No sessions to clear for this event.');
-      return;
-    }
-    if (
-      window.confirm(
-        `Clear all ${sessionsToClear.length} session(s) for this event? All attendance records will be permanently deleted. This cannot be undone.`
-      )
-    ) {
-      const sessionIds = sessionsToClear.map(s => s.id);
-      await db.attendance_records.where('session_id').anyOf(sessionIds).delete();
-      for (const sid of sessionIds) {
-        await db.sessions.delete(sid);
-        await queueMutation('session', 'delete', { id: sid });
-      }
-
-      if (isSupabaseConfigured()) {
-        try {
-          await supabase.from('attendance_records').delete().in('session_id', sessionIds);
-          await supabase.from('sessions').delete().eq('event_id', eventId);
-        } catch (err) {
-          console.warn('Cloud clear sessions error:', err);
-        }
-      }
-
-      setManagingSessionId(null);
-      onRefresh();
-    }
-  };
-
   // ==========================================
   // VIEW 1: INSIDE AN EVENT (Drill Down)
   // ==========================================
@@ -414,23 +380,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
             <button
               type="button"
               onClick={handleExportEventCSV}
-              className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white rounded-2xl text-xs font-bold transition flex items-center gap-1.5 border border-zinc-800 active:scale-95 cursor-pointer shadow-sm"
+              className="px-3.5 sm:px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white rounded-2xl text-xs font-bold transition flex items-center gap-1.5 border border-zinc-800 active:scale-95 cursor-pointer shadow-sm"
+              title="Export CSV"
             >
               <FileSpreadsheet className="w-4 h-4 text-yellow-400" />
-              <span>Export CSV</span>
+              <span className="hidden sm:inline">Export CSV</span>
             </button>
-
-            {eventSessions.length > 0 && (
-              <button
-                type="button"
-                onClick={() => handleClearAllSessions(selectedEvent.id)}
-                className="px-3.5 py-2.5 bg-zinc-900 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 border border-zinc-800 hover:border-rose-800/50 active:scale-95 cursor-pointer"
-                title="Clear All Sessions"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="hidden sm:inline">Clear Sessions</span>
-              </button>
-            )}
 
             <button
               type="button"
@@ -444,33 +399,30 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
 
         {/* Clean Event Header Banner */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-yellow-400 uppercase tracking-widest">
-                  Gathering / Event
-                </span>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 sm:p-8 shadow-sm">
+          <div className="flex flex-col gap-5">
+            <div className="space-y-2 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 {isLive && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-black bg-yellow-400 text-black shadow-md shadow-yellow-950/30">
-                    <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping" />
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black bg-yellow-400 text-black">
+                    <span className="w-1.5 h-1.5 rounded-full bg-black" />
                     LIVE NOW
                   </span>
                 )}
               </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-white">{selectedEvent.name}</h2>
+              <h2 className="text-3xl sm:text-4xl font-black text-white leading-tight tracking-tight text-balance break-words">{selectedEvent.name}</h2>
               <p className="text-xs sm:text-sm text-zinc-400">
-                {eventSessions.length} session{eventSessions.length !== 1 ? 's' : ''} recorded • {activeMembers.length} active members on roster
+                {eventSessions.length} session{eventSessions.length !== 1 ? 's' : ''} • {activeMembers.length} members
               </p>
             </div>
 
             {/* Primary Action Button */}
-            <div>
+            <div className="w-full">
               {isLive ? (
                 <button
                   type="button"
                   onClick={onLaunchKiosk}
-                  className="w-full sm:w-auto px-6 py-3.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm rounded-2xl transition flex items-center justify-center gap-2.5 shadow-xl shadow-yellow-950/50 active:scale-95 cursor-pointer"
+                  className="w-full sm:w-auto px-7 py-4 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm sm:text-base rounded-full transition flex items-center justify-center gap-2.5 shadow-xl shadow-yellow-950/50 active:scale-95 cursor-pointer"
                 >
                   <Smartphone className="w-5 h-5" />
                   <span>Pass Phone (Check-in)</span>
@@ -479,10 +431,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleStartSession(selectedEvent.id)}
-                  className="w-full sm:w-auto px-6 py-3.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm rounded-2xl transition flex items-center justify-center gap-2.5 shadow-xl shadow-yellow-950/50 active:scale-95 cursor-pointer"
+                  className="w-full sm:w-auto px-7 py-4 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm sm:text-base rounded-full transition flex items-center justify-center gap-2.5 shadow-xl shadow-yellow-950/50 active:scale-95 cursor-pointer"
                 >
-                  <Play className="w-5 h-5 fill-current" />
-                  <span>Take Attendance (Today)</span>
+                  <ClipboardCheck className="w-5 h-5" />
+                  <span>Take Attendance</span>
                 </button>
               )}
             </div>
@@ -490,13 +442,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
 
         {/* Sessions Recorded List */}
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest">
-              Recorded Attendance Sessions ({eventSessions.length})
+              Sessions ({eventSessions.length})
             </h3>
-            <span className="text-[11px] text-zinc-500 font-semibold">
-              Click "Manage & View" on any session to edit details or follow up with absentees
+            <span className="hidden sm:inline text-[11px] text-zinc-500 font-semibold">
+              Manage any session to edit details or follow up
             </span>
           </div>
 
@@ -507,62 +459,38 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 const isSessionLive = sess.status === 'open';
                 const presentCount = records.length;
                 const totalCount = activeMembers.length;
-                const absentCount = Math.max(0, totalCount - presentCount);
                 const turnoutPct = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 0;
 
                 return (
                   <div
                     key={sess.id}
-                    className={`bg-zinc-900 border rounded-3xl p-5 sm:p-6 transition shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5 ${
+                    className={`bg-zinc-900 border rounded-2xl p-4 sm:p-5 transition flex flex-col gap-3 ${
                       isSessionLive
-                        ? 'border-yellow-400/60 shadow-lg shadow-yellow-950/20 bg-gradient-to-br from-zinc-900 to-yellow-950/10'
-                        : 'border-zinc-800 hover:border-zinc-700'
+                        ? 'border-yellow-400/50'
+                        : 'border-zinc-800'
                     }`}
                   >
                     {/* Session Info */}
-                    <div className="space-y-2.5 flex-1 min-w-0">
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        <span className="font-black text-white text-lg sm:text-xl tracking-tight">
+                    <div className="min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-white text-base sm:text-lg tracking-tight truncate">
                           {sess.session_date}
                         </span>
-                        
                         <span
-                          className={`inline-flex items-center gap-1 px-3 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
-                            isSessionLive
-                              ? 'bg-yellow-400 text-black shadow'
-                              : 'bg-zinc-800 text-zinc-400 border border-zinc-700/50'
+                          className={`text-[11px] font-bold uppercase tracking-wider shrink-0 ${
+                            isSessionLive ? 'text-yellow-400' : 'text-zinc-500'
                           }`}
                         >
-                          {isSessionLive ? (
-                            <>
-                              <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping" />
-                              <span>Live Session</span>
-                            </>
-                          ) : (
-                            <span>Completed</span>
-                          )}
+                          {isSessionLive ? 'Live' : 'Completed'}
                         </span>
                       </div>
 
-                      {/* Headcount Metrics Bar */}
-                      <div className="flex items-center gap-3 sm:gap-4 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-yellow-400" />
-                          <span className="text-zinc-300 font-bold">
-                            <strong className="text-yellow-400 text-sm">{presentCount}</strong> Present ({turnoutPct}%)
-                          </span>
-                        </div>
-                        <div className="text-zinc-600 font-bold">•</div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-rose-500" />
-                          <span className="text-zinc-400 font-medium">
-                            <strong className="text-rose-400 text-sm">{absentCount}</strong> Absent
-                          </span>
-                        </div>
-                      </div>
+                      <p className="text-xs sm:text-sm text-zinc-400 mt-1">
+                        {presentCount} of {totalCount} present · {turnoutPct}%
+                      </p>
 
-                      {/* Mini visual progress bar */}
-                      <div className="w-full max-w-md h-1.5 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+                      {/* Turnout progress */}
+                      <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden mt-2">
                         <div
                           className="h-full bg-yellow-400 rounded-full transition-all duration-500"
                           style={{ width: `${turnoutPct}%` }}
@@ -571,8 +499,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     </div>
 
                     {/* Action Controls for this specific session */}
-                    <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap sm:flex-nowrap justify-start md:justify-end">
-                      {/* Prominent Primary "Manage & View" Button */}
+                    <div className="flex flex-col gap-2 border-t border-zinc-800 pt-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -583,78 +510,66 @@ export const EventsView: React.FC<EventsViewProps> = ({
                           setIsEditingDate(false);
                           setEditDateValue(sess.session_date);
                         }}
-                        className="px-4 sm:px-5 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-2xl transition flex items-center gap-1.5 shadow-md shadow-yellow-950/40 active:scale-95 cursor-pointer"
+                        className="w-full px-4 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
                       >
                         <Edit3 className="w-4 h-4" />
                         <span>Manage &amp; View</span>
                       </button>
 
-                      {/* If live, quick Kiosk launcher button */}
+                      <div className="flex items-center gap-2">
                       {isSessionLive && (
                         <button
                           type="button"
                           onClick={onLaunchKiosk}
-                          className="px-3.5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded-2xl transition flex items-center gap-1.5 border border-zinc-700/50 cursor-pointer active:scale-95"
+                          className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 cursor-pointer active:scale-95"
                           title="Pass Phone for this session"
                         >
-                          <Smartphone className="w-3.5 h-3.5 text-yellow-400" />
-                          <span className="hidden sm:inline">Pass Phone</span>
+                          <Smartphone className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>Pass Phone</span>
                         </button>
                       )}
 
-                      {/* Session End/Reopen direct trigger on card */}
                       <button
                         type="button"
                         onClick={() => handleToggleSessionStatus(sess)}
-                        className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
-                          isSessionLive
-                            ? 'bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40'
-                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50'
-                        }`}
+                        className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 border border-zinc-800 text-zinc-300 hover:bg-zinc-800"
                         title={isSessionLive ? 'End Session' : 'Reopen Session'}
                       >
-                        {isSessionLive ? (
-                          <>
-                            <span>End Session</span>
-                          </>
-                        ) : (
-                          <>
-                            <RotateCcw className="w-3.5 h-3.5 text-yellow-400" />
-                            <span className="hidden sm:inline">Reopen</span>
-                          </>
-                        )}
+                        {!isSessionLive && <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />}
+                        <span>{isSessionLive ? 'End Session' : 'Reopen'}</span>
                       </button>
 
-                      {/* Export CSV for this session */}
                       <button
                         type="button"
                         onClick={() => exportSessionCSV(sess, selectedEvent.name)}
-                        className="p-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-2xl transition border border-zinc-700/50 cursor-pointer"
+                        className="px-3 py-2 text-zinc-400 hover:text-white rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer"
                         title="Download CSV for this date"
                       >
-                        <FileSpreadsheet className="w-4 h-4 text-yellow-400" />
+                        <FileSpreadsheet className="w-4 h-4" />
                       </button>
 
-                      {/* Delete Session */}
                       <button
                         type="button"
                         onClick={() => handleDeleteSession(sess.id, sess.session_date)}
-                        className="p-2.5 bg-zinc-800/80 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-400 rounded-2xl border border-zinc-800 hover:border-rose-800/50 transition cursor-pointer"
+                        className="px-3 py-2 text-zinc-500 hover:text-rose-400 rounded-xl border border-zinc-800 hover:bg-zinc-800 transition cursor-pointer"
                         title="Delete Session"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="p-10 text-center bg-zinc-900 border border-zinc-800 rounded-3xl space-y-2">
-              <Clock className="w-10 h-10 text-zinc-600 mx-auto mb-2" />
-              <p className="text-base font-bold text-zinc-300">No sessions recorded yet</p>
-              <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-                Tap "Take Attendance" above to record your first gathering.
+            <div className="min-h-[40vh] sm:min-h-[320px] flex flex-col items-center justify-center gap-3 p-8 sm:p-10 text-center bg-zinc-900 border border-dashed border-zinc-700/80 rounded-3xl">
+              <div className="w-12 h-12 rounded-2xl bg-zinc-800 text-zinc-500 flex items-center justify-center">
+                <Clock className="w-6 h-6" />
+              </div>
+              <p className="text-base sm:text-lg font-black text-zinc-200">No sessions yet</p>
+              <p className="text-xs sm:text-sm text-zinc-500 max-w-xs">
+                Tap Take Attendance above to record your first gathering.
               </p>
             </div>
           )}
@@ -664,25 +579,19 @@ export const EventsView: React.FC<EventsViewProps> = ({
         {/* FULL SESSION MANAGEMENT MODAL (The Interactive Open Hub) */}
         {/* ========================================================= */}
         {managingSession && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in">
-            <div className="relative w-full max-w-3xl max-h-[90vh] bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in">
+            <div className="relative w-full sm:max-w-2xl h-[92dvh] sm:h-[86vh] bg-zinc-900 sm:border border-zinc-800 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden">
               {/* Modal Header */}
-              <div className="p-5 sm:p-6 border-b border-zinc-800 flex items-start justify-between gap-4">
-                <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-black text-yellow-400 uppercase tracking-widest">
-                      {selectedEvent.name}
+              <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-zinc-800 shrink-0">
+                <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest truncate">
+                    {selectedEvent.name}
+                    <span className="text-zinc-700"> · </span>
+                    <span className={managingSession.status === 'open' ? 'text-yellow-400' : 'text-zinc-500'}>
+                      {managingSession.status === 'open' ? 'Live' : 'Completed'}
                     </span>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                        managingSession.status === 'open'
-                          ? 'bg-yellow-400 text-black'
-                          : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                      }`}
-                    >
-                      {managingSession.status === 'open' ? 'Live Session' : 'Completed'}
-                    </span>
-                  </div>
+                  </p>
 
                   {/* Date with Inline Edit */}
                   {isEditingDate ? (
@@ -731,94 +640,79 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setManagingSessionId(null)}
-                  className="p-2 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800 transition cursor-pointer"
+                  className="p-2 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800 transition cursor-pointer shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </button>
+                </div>
               </div>
 
-              {/* Action Toolbar & Stats */}
-              <div className="p-4 sm:p-5 bg-zinc-950/70 border-b border-zinc-800 space-y-4">
-                {/* Stats row */}
+              {/* Summary & Actions */}
+              <div className="px-5 sm:px-6 py-4 border-b border-zinc-800 space-y-3 shrink-0 bg-zinc-950/50">
                 {(() => {
                   const presentMemberIds = new Set(managingRecords.map(r => r.member_id));
                   const presentCount = activeMembers.filter(m => presentMemberIds.has(m.id)).length;
                   const totalCount = activeMembers.length;
-                  const absentCount = Math.max(0, totalCount - presentCount);
                   const pct = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 0;
 
                   return (
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800">
-                        <span className="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider">
-                          Present Headcount
-                        </span>
-                        <span className="text-lg sm:text-xl font-black text-yellow-400">
-                          {presentCount} <span className="text-xs text-zinc-400 font-normal">({pct}%)</span>
-                        </span>
+                    <>
+                      <div>
+                        <p className="text-sm text-zinc-400">
+                          <span className="font-black text-white">{presentCount}</span> of {totalCount} present · {pct}%
+                        </p>
+                        <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden mt-2">
+                          <div
+                            className="h-full bg-yellow-400 rounded-full transition-all duration-500"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800">
-                        <span className="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider">
-                          Absent
-                        </span>
-                        <span className="text-lg sm:text-xl font-black text-rose-400">
-                          {absentCount}
-                        </span>
+
+                      <div className="flex items-center gap-2">
+                        {managingSession.status === 'open' ? (
+                          <button
+                            type="button"
+                            onClick={onLaunchKiosk}
+                            className="flex-1 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                          >
+                            <Smartphone className="w-3.5 h-3.5" />
+                            <span>Pass Phone</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSessionStatus(managingSession)}
+                            className="flex-1 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Reopen Session</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => exportSessionCSV(managingSession, selectedEvent.name)}
+                          className="p-2.5 text-zinc-400 hover:text-white rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer"
+                          title="Download CSV"
+                        >
+                          <FileSpreadsheet className="w-4 h-4" />
+                        </button>
+
+                        {managingSession.status === 'open' && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSessionStatus(managingSession)}
+                            className="px-3.5 py-2.5 rounded-xl text-xs font-bold border border-zinc-800 text-zinc-400 hover:text-rose-300 hover:border-rose-900 transition cursor-pointer"
+                            title="End Session"
+                          >
+                            End
+                          </button>
+                        )}
                       </div>
-                      <div className="p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800">
-                        <span className="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider">
-                          Total Roster
-                        </span>
-                        <span className="text-lg sm:text-xl font-black text-white">
-                          {totalCount}
-                        </span>
-                      </div>
-                    </div>
+                    </>
                   );
                 })()}
-
-                {/* Session Actions Controls */}
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    {managingSession.status === 'open' ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={onLaunchKiosk}
-                          className="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow active:scale-95 cursor-pointer"
-                        >
-                          <Smartphone className="w-3.5 h-3.5" />
-                          <span>Pass Phone (Kiosk)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleSessionStatus(managingSession)}
-                          className="px-3 py-2 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 font-bold text-xs rounded-xl transition cursor-pointer"
-                        >
-                          End Session
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleSessionStatus(managingSession)}
-                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-yellow-400 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Reopen Session</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => exportSessionCSV(managingSession, selectedEvent.name)}
-                    className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-zinc-800 cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-yellow-400" />
-                    <span>Download CSV</span>
-                  </button>
-                </div>
               </div>
 
               {/* Roster Controls: Search & Tabs */}
@@ -884,18 +778,15 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
                 {/* Department pills */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-                  <span className="text-[11px] text-zinc-500 font-semibold mr-1 flex items-center gap-1">
-                    <Filter className="w-3 h-3 text-yellow-400" /> Unit:
-                  </span>
                   {departments.map(dept => (
                     <button
                       key={dept}
                       type="button"
                       onClick={() => setModalDeptFilter(dept)}
-                      className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition cursor-pointer ${
                         modalDeptFilter === dept
                           ? 'bg-yellow-400 text-black font-bold'
-                          : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
+                          : 'text-zinc-500 hover:text-white'
                       }`}
                     >
                       {dept === 'all' ? 'All Units' : dept}
@@ -905,7 +796,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
               </div>
 
               {/* Roster List with 1-Tap Toggle & Absent Outreach */}
-              <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-2 max-h-96">
+              <div className="px-4 sm:px-5 py-4 flex-1 min-h-0 overflow-y-auto space-y-2">
                 {(() => {
                   const presentMemberIds = new Set(managingRecords.map(r => r.member_id));
 
@@ -940,56 +831,38 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     return (
                       <div
                         key={member.id}
-                        className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
-                          isPresent
-                            ? 'bg-yellow-950/20 border-yellow-500/40 text-white'
-                            : 'bg-zinc-950/80 border-zinc-800/80 text-zinc-300'
-                        }`}
+                        className="p-3 rounded-2xl border border-zinc-800 bg-zinc-950/60 flex items-center justify-between gap-3"
                       >
                         {/* Member Info */}
                         <div
                           onClick={() => handleToggleManualAttendance(managingSession.id, member.id)}
                           className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer select-none"
                         >
-                          <div
-                            className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 ${
-                              isPresent
-                                ? 'bg-yellow-400 text-black shadow'
-                                : 'bg-zinc-800 text-zinc-400'
-                            }`}
-                          >
+                          <div className="w-9 h-9 rounded-xl bg-zinc-800 text-zinc-300 flex items-center justify-center font-bold text-xs shrink-0">
                             {member.full_name[0]?.toUpperCase()}
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <div className="font-bold text-sm truncate flex items-center gap-2">
-                              <span className={isPresent ? 'text-yellow-200' : 'text-white'}>
-                                {member.full_name}
-                              </span>
-                              {member.check_in_code && (
-                                <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-1.5 py-0.2 rounded border border-zinc-800">
-                                  {member.check_in_code}
-                                </span>
-                              )}
+                            <div className="font-bold text-sm text-white truncate">
+                              {member.full_name}
                             </div>
-                            <div className="text-xs text-zinc-400 flex items-center gap-2 mt-0.5">
-                              <span>{member.department || 'General'}</span>
-                              {member.phone && <span>• {member.phone}</span>}
+                            <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                              {member.department || 'General'}
                             </div>
                           </div>
                         </div>
 
                         {/* Actions */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {/* If absent, show follow-up buttons */}
                           {!isPresent && member.phone && (
                             <>
                               <a
                                 href={`tel:${member.phone}`}
-                                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition border border-zinc-800"
+                                className="p-2 rounded-xl text-zinc-400 hover:text-white transition border border-zinc-800 hover:bg-zinc-800"
                                 title="Call member"
                               >
-                                <Phone className="w-3.5 h-3.5 text-yellow-400" />
+                                <Phone className="w-3.5 h-3.5" />
                               </a>
                               <a
                                 href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(
@@ -999,7 +872,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                                 )}%20today!%20Hope%20you%20are%20doing%20well.`}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="p-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-black transition shadow-sm"
+                                className="p-2 rounded-xl text-zinc-400 hover:text-emerald-300 transition border border-zinc-800 hover:bg-zinc-800"
                                 title="Message on WhatsApp"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
@@ -1013,8 +886,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
                             onClick={() => handleToggleManualAttendance(managingSession.id, member.id)}
                             className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer ${
                               isPresent
-                                ? 'bg-yellow-400 text-black shadow-md'
-                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
+                                ? 'bg-yellow-400 text-black'
+                                : 'text-zinc-300 border border-zinc-800 hover:bg-zinc-800'
                             }`}
                           >
                             {isPresent ? (
@@ -1049,20 +922,17 @@ export const EventsView: React.FC<EventsViewProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl sm:text-2xl font-black text-white">Events</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Select an event to start attendance, view past records, or follow up with absentees.
-          </p>
+          <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Events</h2>
         </div>
 
         {events.length > 0 && (
           <button
             type="button"
             onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 sm:px-5 py-2.5 sm:py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-xl sm:rounded-2xl transition flex items-center gap-1.5 sm:gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer whitespace-nowrap"
+            className="px-5 sm:px-6 py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs sm:text-sm rounded-full transition flex items-center gap-2 shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Plus className="w-4 h-4" />
-            <span>+ New Event</span>
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>New Event</span>
           </button>
         )}
       </div>
@@ -1073,55 +943,50 @@ export const EventsView: React.FC<EventsViewProps> = ({
           {events.map(ev => {
             const evSessions = sessions.filter(s => s.event_id === ev.id);
             const isLive = activeSession?.event_id === ev.id;
-            const lastSession = [...evSessions].sort(
-              (a, b) => new Date(b.session_date).getTime() - new Date(a.session_date).getTime()
-            )[0];
 
             return (
               <div
                 key={ev.id}
                 onClick={() => setSelectedEventId(ev.id)}
-                className={`p-6 rounded-3xl border transition cursor-pointer flex flex-col justify-between hover:scale-[1.01] active:scale-[0.99] shadow-sm ${
+                className={`p-5 sm:p-6 rounded-3xl border transition cursor-pointer flex flex-col gap-4 hover:scale-[1.01] active:scale-[0.99] shadow-sm ${
                   isLive
                     ? 'bg-zinc-900 border-yellow-400/60 shadow-lg shadow-yellow-950/30'
                     : 'bg-zinc-900 hover:bg-zinc-800/80 border-zinc-800 hover:border-zinc-700'
                 }`}
               >
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="w-11 h-11 rounded-2xl bg-yellow-400/10 text-yellow-400 flex items-center justify-center border border-yellow-400/20">
-                      <Calendar className="w-5 h-5" />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {isLive && (
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-yellow-400 text-black">
-                          LIVE NOW
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteEvent(ev.id, ev.name);
-                        }}
-                        className="p-2 text-zinc-500 hover:text-rose-400 rounded-xl hover:bg-zinc-800 transition cursor-pointer"
-                        title="Delete Event"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="w-9 h-9 rounded-xl bg-yellow-400/10 text-yellow-400 flex items-center justify-center border border-yellow-400/20 shrink-0">
+                    <Calendar className="w-4 h-4" />
                   </div>
-
-                  <h3 className="text-lg font-black text-white mb-1">{ev.name}</h3>
-                  <p className="text-xs text-zinc-400">
-                    {evSessions.length} session{evSessions.length !== 1 ? 's' : ''} recorded
-                    {lastSession ? ` • Last: ${lastSession.session_date}` : ''}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    {isLive && (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-yellow-400 text-black">
+                        LIVE NOW
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteEvent(ev.id, ev.name);
+                      }}
+                      className="p-2 text-zinc-500 hover:text-rose-400 rounded-xl hover:bg-zinc-800 transition cursor-pointer"
+                      title="Delete Event"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-zinc-800 flex items-center justify-between text-xs font-black text-yellow-400">
-                  <span>Open Event &rarr;</span>
-                  <ChevronRight className="w-4 h-4 text-zinc-500" />
+                <h3 className="text-2xl sm:text-[26px] font-black text-white leading-tight tracking-tight break-words">{ev.name}</h3>
+
+                <div className="pt-4 border-t border-zinc-800 flex items-center justify-between">
+                  <span className="text-sm text-zinc-400 font-semibold">
+                    {evSessions.length} session{evSessions.length !== 1 ? 's' : ''}
+                  </span>
+                  <span className="w-9 h-9 rounded-full bg-yellow-400 text-black flex items-center justify-center shadow-md shadow-yellow-950/40">
+                    <ChevronRight className="w-5 h-5 stroke-[2.5]" />
+                  </span>
                 </div>
               </div>
             );
@@ -1129,21 +994,18 @@ export const EventsView: React.FC<EventsViewProps> = ({
         </div>
       ) : (
         /* Empty State with Welcoming UI */
-        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 text-center space-y-4">
-          <div className="w-16 h-16 rounded-3xl bg-yellow-400/10 text-yellow-400 flex items-center justify-center mx-auto border border-yellow-400/20 shadow-md">
-            <Sparkles className="w-8 h-8" />
-          </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl px-5 py-10 sm:p-10 text-center space-y-4 sm:space-y-5">
           <div>
-            <h3 className="text-xl font-black text-white mb-1">Welcome! Create Your First Event</h3>
+            <h3 className="text-3xl sm:text-4xl font-black text-white mb-2 leading-tight text-balance">Welcome! Create Your First Event</h3>
             <p className="text-xs sm:text-sm text-zinc-400 max-w-sm mx-auto">
               Add your regular gathering (e.g. Sunday Worship, Thursday Mass, Youth Camp) to start taking attendance.
             </p>
           </div>
-          <div className="pt-2">
+          <div className="pt-2 px-1">
             <button
               type="button"
               onClick={() => setIsCreateModalOpen(true)}
-              className="px-6 py-3.5 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm rounded-2xl transition shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
+              className="w-full sm:w-auto px-6 py-3.5 sm:py-4 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm sm:text-base rounded-2xl transition shadow-lg shadow-yellow-950/40 active:scale-95 cursor-pointer"
             >
               + Create Your First Event
             </button>

@@ -11,10 +11,12 @@ import {
   LogOut,
   Mail,
   AtSign,
+  KeyRound,
 } from 'lucide-react';
 import type { Fellowship } from '../types';
 import { db } from '../lib/db';
 import { queueMutation } from '../lib/syncEngine';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { generateSlug } from '../lib/codeGenerator';
 import { exportAllMembersAttendanceRateCSV } from '../lib/exportUtils';
 import { useAuth } from '../lib/AuthContext';
@@ -32,6 +34,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [name, setName] = useState(fellowship?.name || 'My Fellowship');
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwMessage, setPwMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isChangingPw, setIsChangingPw] = useState(false);
 
   const slug = fellowship?.slug || generateSlug(fellowship?.name || 'my-fellowship');
   const joinUrl = `${window.location.origin}${window.location.pathname}#/join/${slug}`;
@@ -61,6 +68,57 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setSavedMessage('Organization name updated successfully!');
     setTimeout(() => setSavedMessage(null), 3000);
     onRefresh();
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwMessage(null);
+
+    if (!user?.email) {
+      setPwMessage({ type: 'error', text: 'No admin email found on this session. Please sign out and sign in again.' });
+      return;
+    }
+    if (!isSupabaseConfigured()) {
+      setPwMessage({ type: 'error', text: 'Password change needs an internet connection to the cloud. Try again when online.' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPwMessage({ type: 'error', text: 'New password must be at least 6 characters.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwMessage({ type: 'error', text: 'New passwords do not match.' });
+      return;
+    }
+
+    setIsChangingPw(true);
+    try {
+      // 1. Re-authenticate with the current password (this is also the kiosk exit password)
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (signInError) {
+        setPwMessage({ type: 'error', text: 'Current password is incorrect.' });
+        return;
+      }
+
+      // 2. Update to the new password
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) {
+        setPwMessage({ type: 'error', text: updateError.message });
+        return;
+      }
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPwMessage({ type: 'success', text: 'Password updated. Use it next time you sign in or exit kiosk mode.' });
+    } catch (err: any) {
+      setPwMessage({ type: 'error', text: err?.message || 'Could not change password. Check your connection and try again.' });
+    } finally {
+      setIsChangingPw(false);
+    }
   };
 
   const handleClearAllData = async () => {
@@ -129,7 +187,85 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 2. Self-Registration Join Link */}
+      {/* 2. Change Password (also used to exit kiosk mode) */}
+      <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
+        <div>
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <KeyRound className="w-5 h-5 text-yellow-400" /> Change Password
+          </h3>
+          <p className="text-xs text-zinc-400 mt-1">
+            This is the same password used to sign in and to exit kiosk (attendance) mode.
+          </p>
+        </div>
+
+        {pwMessage && (
+          <div
+            className={`p-3 border rounded-xl text-xs font-semibold ${
+              pwMessage.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-800/50 text-emerald-300'
+                : 'bg-rose-950/60 border-rose-800/50 text-rose-300'
+            }`}
+          >
+            {pwMessage.text}
+          </div>
+        )}
+
+        <form onSubmit={handleChangePassword} className="space-y-3">
+          <div>
+            <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+              Current password
+            </label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={e => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none transition"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                New password
+              </label>
+              <input
+                type="password"
+                required
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="Min. 6 characters"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none transition"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                Confirm new password
+              </label>
+              <input
+                type="password"
+                required
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none transition"
+              />
+            </div>
+          </div>
+          <div className="pt-1">
+            <button
+              type="submit"
+              disabled={isChangingPw}
+              className="w-full sm:w-auto px-5 py-3 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 active:scale-95 text-black font-black text-xs rounded-xl transition shadow-lg shadow-yellow-950/40 cursor-pointer"
+            >
+              {isChangingPw ? 'Updating…' : 'Update Password'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* 3. Self-Registration Join Link */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -156,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Export Master CSV Spreadsheet */}
+      {/* 4. Export Master CSV Spreadsheet */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -177,7 +313,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </button>
       </div>
 
-      {/* 4. General Profile */}
+      {/* 5. General Profile */}
       <div className="bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
         <h3 className="text-base font-bold text-white flex items-center gap-2">
           <Building2 className="w-5 h-5 text-yellow-400" /> Organization Profile
@@ -214,7 +350,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </form>
       </div>
 
-      {/* 5. Danger Zone */}
+      {/* 6. Danger Zone */}
       <div className="bg-zinc-900 border border-rose-950 p-5 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="text-sm font-bold text-rose-400">Reset Local Cache</div>
