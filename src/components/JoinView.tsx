@@ -15,6 +15,7 @@ import { generateUniqueCode } from '../lib/codeGenerator';
 import { queueMutation, flushSyncQueue } from '../lib/syncEngine';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AtendeeLogo } from './AtendeeLogo';
+import { InstallPrompt } from './InstallPrompt';
 import type { Fellowship, Member } from '../types';
 
 interface JoinViewProps {
@@ -356,6 +357,8 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
           </form>
         )}
       </div>
+
+      <InstallPrompt />
     </div>
   );
 };

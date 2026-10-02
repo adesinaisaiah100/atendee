@@ -2,6 +2,7 @@
   "name": "atendee — Attendance Made Effortless",
   "short_name": "atendee",
   "description": "Offline-first attendance platform with circulating phone check-in and 1-click cloud sync.",
+  "id": "/",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -9,10 +10,22 @@
   "theme_color": "#09090b",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "48x48 72x72 96x96 128x128 192x192 256x256 512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

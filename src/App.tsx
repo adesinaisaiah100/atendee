@@ -13,6 +13,7 @@ import { MemberManagement } from './components/MemberManagement';
 import { MissingMembersView } from './components/MissingMembersView';
 import { SettingsView } from './components/SettingsView';
 import { JoinView } from './components/JoinView';
+import { InstallPrompt } from './components/InstallPrompt';
 import type { InactivityAlert } from './types';
 
 /** Main Admin Dashboard (Multi-Tenant Scoped) */
@@ -291,6 +292,8 @@ function AdminApp() {
           />
         )}
       </main>
+
+      <InstallPrompt />
     </div>
   );
 }
