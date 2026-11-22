@@ -22,6 +22,7 @@ import { SettingsView } from './components/SettingsView';
 import { JoinView } from './components/JoinView';
 import { CheckInView } from './components/CheckInView';
 import { InstallPrompt } from './components/InstallPrompt';
+import { syncSessionToWcfTracker } from './lib/wcfSync';
 import type { AttendanceRecord, EventTemplate, InactivityAlert, Member, Session } from './types';
 
 // Stable empty identities: `useLiveQuery(...) || []` creates a new array every
@@ -146,6 +147,18 @@ function AdminApp() {
 
       if (fellowshipId) {
         computeInactivityAlerts(fellowshipId, undefined, inactivityThreshold, true).then(setInactivityAlerts);
+      }
+
+      const closedSession = sessions.find(s => s.id === sessionId);
+      if (closedSession) {
+        const closedEvent = events.find(e => e.id === closedSession.event_id) || null;
+        syncSessionToWcfTracker({
+          fellowship,
+          event: closedEvent,
+          session: { ...closedSession, status: 'closed', closed_at: closedAt },
+          members,
+          attendanceRecords,
+        }).catch(console.warn);
       }
     }
   };
@@ -277,6 +290,7 @@ function AdminApp() {
 
         {activeTab === 'events' && (
           <EventsView
+            fellowship={fellowship}
             fellowshipId={fellowshipId}
             events={events}
             sessions={sessions}

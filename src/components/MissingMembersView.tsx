@@ -12,6 +12,7 @@ import {
 import type { EventTemplate, Session, Member, AttendanceRecord, InactivityAlert } from '../types';
 import { markAttendance } from '../lib/syncEngine';
 import { downloadCSV } from '../lib/exportUtils';
+import { DEFAULT_UNIT, getUnitFilterOptions } from '../lib/constants';
 
 interface MissingMembersViewProps {
   fellowshipId: string;
@@ -49,7 +50,7 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
 
-  const departments = ['all', 'Choir', 'Ushering', 'Media', 'Technical', 'Welfare', 'Bible Study', 'General'];
+  const departments = useMemo(() => getUnitFilterOptions(members), [members]);
   const activeMembers = useMemo(() => members.filter(m => m.is_active), [members]);
 
   // Available sessions for selected event
@@ -186,11 +187,13 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
       ['Unit filter', departmentFilter === 'all' ? 'All units' : departmentFilter],
       ['Search', searchQuery || '—'],
       [],
-      ['Full Name', 'Department', 'Phone', 'Check-in Code', 'Status'],
+      ['Full Name', 'Phone', 'Hostel / Hall', 'Room / Block', 'Unit', 'Check-in Code', 'Status'],
       ...filteredSessionAbsentees.map(m => [
         csvSafe(m.full_name),
-        csvSafe(m.department || 'General'),
         csvSafe(m.phone),
+        csvSafe(m.hostel),
+        csvSafe(m.room_or_block),
+        csvSafe(m.department || DEFAULT_UNIT),
         csvSafe(m.check_in_code),
         'Absent',
       ]),
@@ -214,13 +217,15 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
       ['Present', presentIds.size],
       ['Roster', activeMembers.length],
       [],
-      ['Full Name', 'Department', 'Phone', 'Check-in Code', 'Status'],
+      ['Full Name', 'Status', 'Phone', 'Hostel / Hall', 'Room / Block', 'Unit', 'Check-in Code'],
       ...activeMembers.map(m => [
         csvSafe(m.full_name),
-        csvSafe(m.department || 'General'),
-        csvSafe(m.phone),
-        csvSafe(m.check_in_code),
         presentIds.has(m.id) ? 'Present' : 'Absent',
+        csvSafe(m.phone),
+        csvSafe(m.hostel),
+        csvSafe(m.room_or_block),
+        csvSafe(m.department || DEFAULT_UNIT),
+        csvSafe(m.check_in_code),
       ]),
     ];
     downloadCSV(
@@ -238,11 +243,13 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
       ['Exported', new Date().toLocaleString()],
       ['Unit filter', departmentFilter === 'all' ? 'All units' : departmentFilter],
       [],
-      ['Full Name', 'Department', 'Phone', 'Check-in Code', 'Consecutive Missed', 'Last Attended', 'Attendance %'],
+      ['Full Name', 'Phone', 'Hostel / Hall', 'Room / Block', 'Unit', 'Check-in Code', 'Consecutive Missed', 'Last Attended', 'Attendance %'],
       ...filteredConsecutiveAlerts.map(a => [
         csvSafe(a.member.full_name),
-        csvSafe(a.member.department || 'General'),
         csvSafe(a.member.phone),
+        csvSafe(a.member.hostel),
+        csvSafe(a.member.room_or_block),
+        csvSafe(a.member.department || DEFAULT_UNIT),
         csvSafe(a.member.check_in_code),
         a.consecutive_missed,
         csvSafe(a.last_attended_date || 'Never'),
@@ -437,8 +444,11 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
                         <h4 className="font-bold text-white text-base truncate">
                           {member.full_name}
                         </h4>
-                        <span className="text-xs text-zinc-500 block mt-0.5">
-                          {member.department || 'General'}
+                        <span className="text-xs text-zinc-500 block mt-0.5 truncate">
+                          {member.department || DEFAULT_UNIT}
+                          {member.hostel
+                            ? ` / ${member.hostel}${member.room_or_block ? `, ${member.room_or_block}` : ''}`
+                            : ''}
                         </span>
                       </div>
 

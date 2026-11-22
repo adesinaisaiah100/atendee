@@ -10,6 +10,8 @@ import {
   Phone,
   Briefcase,
   PartyPopper,
+  Home,
+  DoorOpen,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ConfirmModal } from './ConfirmModal';
@@ -20,6 +22,7 @@ import { db } from '../lib/db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { queueMutation, checkInMemberOptimistic } from '../lib/syncEngine';
 import { generateUniqueCode } from '../lib/codeGenerator';
+import { UNITS, DEFAULT_UNIT, COMMON_HOSTELS } from '../lib/constants';
 
 interface KioskCheckInProps {
   session: Session | null;
@@ -53,7 +56,9 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   const [isQuickRegOpen, setIsQuickRegOpen] = useState(false);
   const [regFullName, setRegFullName] = useState('');
   const [regPhone, setRegPhone] = useState('');
-  const [regDepartment, setRegDepartment] = useState('General');
+  const [regHostel, setRegHostel] = useState('');
+  const [regRoom, setRegRoom] = useState('');
+  const [regDepartment, setRegDepartment] = useState<string>(DEFAULT_UNIT);
   const [isSubmittingReg, setIsSubmittingReg] = useState(false);
   const [registeredMemberCode, setRegisteredMemberCode] = useState<string | null>(null);
   const [registeredMemberName, setRegisteredMemberName] = useState<string | null>(null);
@@ -129,7 +134,9 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
   const handleOpenQuickRegister = (prefillName = '') => {
     setRegFullName(prefillName);
     setRegPhone('');
-    setRegDepartment('General');
+    setRegHostel('');
+    setRegRoom('');
+    setRegDepartment(DEFAULT_UNIT);
     setRegisteredMemberCode(null);
     setRegisteredMemberName(null);
     setIsQuickRegOpen(true);
@@ -137,7 +144,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
 
   const handleQuickRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regFullName.trim() || !session) return;
+    if (!regFullName.trim() || !regPhone.trim() || !regHostel.trim() || !session) return;
 
     setIsSubmittingReg(true);
     try {
@@ -149,8 +156,10 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
         id: crypto.randomUUID(),
         fellowship_id: fId,
         full_name: regFullName.trim(),
-        phone: regPhone.trim() || undefined,
-        department: regDepartment.trim() || 'General',
+        phone: regPhone.trim(),
+        hostel: regHostel.trim(),
+        room_or_block: regRoom.trim() || undefined,
+        department: regDepartment.trim() || DEFAULT_UNIT,
         check_in_code: code,
         joined_at: new Date().toISOString().split('T')[0],
         is_active: true,
@@ -507,12 +516,13 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
                 {/* Phone Number */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                    Phone / WhatsApp <span className="text-zinc-500 font-normal">(Optional)</span>
+                    Phone / WhatsApp <span className="text-yellow-400">*</span>
                   </label>
                   <div className="relative">
                     <Phone className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="tel"
+                      required
                       placeholder="e.g. 08012345678"
                       value={regPhone}
                       onChange={e => setRegPhone(e.target.value)}
@@ -521,10 +531,51 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
                   </div>
                 </div>
 
+                {/* Hostel & Room */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                      Hostel / Hall <span className="text-yellow-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Home className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        list="kiosk-hostel-suggestions"
+                        placeholder="e.g. Tedder Hall"
+                        value={regHostel}
+                        onChange={e => setRegHostel(e.target.value)}
+                        className="w-full pl-10 pr-3 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white placeholder-zinc-600 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-yellow-400/20"
+                      />
+                      <datalist id="kiosk-hostel-suggestions">
+                        {COMMON_HOSTELS.map(h => (
+                          <option key={h} value={h} />
+                        ))}
+                      </datalist>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                      Room / Block <span className="text-zinc-500 font-normal">(Opt.)</span>
+                    </label>
+                    <div className="relative">
+                      <DoorOpen className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="e.g. Block B, Rm 14"
+                        value={regRoom}
+                        onChange={e => setRegRoom(e.target.value)}
+                        className="w-full pl-10 pr-3 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white placeholder-zinc-600 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-yellow-400/20"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Department / Unit */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                    Department / Unit
+                    Unit / Department
                   </label>
                   <div className="relative">
                     <Briefcase className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -533,15 +584,11 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
                       onChange={e => setRegDepartment(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-yellow-400/20 cursor-pointer"
                     >
-                      <option value="General">General / Member</option>
-                      <option value="Choir">Choir / Music</option>
-                      <option value="Ushering">Ushering & Protocol</option>
-                      <option value="Media">Media & Tech</option>
-                      <option value="Youth">Youth / Campus</option>
-                      <option value="Children">Children / Sunday School</option>
-                      <option value="Prayer">Prayer & Intercession</option>
-                      <option value="Sanctuary">Sanctuary Keepers</option>
-                      <option value="Welfare">Welfare & Follow-up</option>
+                      {UNITS.map(u => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -557,7 +604,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
 
                   <button
                     type="submit"
-                    disabled={isSubmittingReg || !regFullName.trim()}
+                    disabled={isSubmittingReg || !regFullName.trim() || !regPhone.trim() || !regHostel.trim()}
                     className="flex-1 py-3 bg-yellow-400 hover:bg-yellow-300 disabled:bg-zinc-700 disabled:text-zinc-500 text-black font-black text-xs sm:text-sm rounded-xl transition shadow-lg shadow-yellow-950/40 flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                   >
                     {isSubmittingReg ? (

@@ -4,6 +4,7 @@ export type AttendanceSource = 'self' | 'admin_manual' | 'code';
 export type AttendanceStatus = 'present' | 'removed';
 export type PendingStatus = 'pending' | 'merged' | 'deleted';
 export type SyncStatus = 'synced' | 'pending_sync' | 'error';
+export type WcfEventCode = 'prayer_meeting' | 'fjc' | 'bible_study' | 'sunday_service';
 
 export interface Fellowship {
   id: string;
@@ -28,6 +29,10 @@ export interface Member {
   phone?: string;
   gender?: Gender;
   department?: string;
+  /** Hall of residence / hostel name (e.g. Tedder Hall, Off-Campus). */
+  hostel?: string;
+  /** Optional room number or block info (e.g. Block B, Room 14). */
+  room_or_block?: string;
   check_in_code: string; // Unique code e.g. "GRACE-4827"
   joined_at: string;
   is_active: boolean;
@@ -121,4 +126,17 @@ export interface MemberAttendanceStats {
   sessions_possible: number;
   attendance_pct: number;
   last_seen: string | null;
+}
+
+export interface WcfSyncLog {
+  session_id: string;
+  fellowship_id: string;
+  event_code: WcfEventCode;
+  status: 'synced' | 'failed' | 'skipped';
+  synced_at: string;
+  processed: number;
+  new_members_added: number;
+  members_updated: number;
+  skipped_no_phone: number;
+  error?: string;
 }

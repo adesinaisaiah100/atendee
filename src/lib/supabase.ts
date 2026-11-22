@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS members (
   phone          TEXT,
   gender         TEXT CHECK (gender IN ('male', 'female', 'other')),
   department     TEXT,
+  hostel         TEXT,
+  room_or_block  TEXT,
   check_in_code  VARCHAR(16),
   joined_at      DATE NOT NULL DEFAULT current_date,
   is_active      BOOLEAN NOT NULL DEFAULT true,
@@ -124,9 +126,11 @@ CREATE TABLE IF NOT EXISTS terms (
 );
 
 -- ==========================================
--- v4 INCREMENTAL MIGRATION (SAFE TO RE-RUN)
+-- v4 / v5 INCREMENTAL MIGRATION (SAFE TO RE-RUN)
 -- ==========================================
 ALTER TABLE members ADD COLUMN IF NOT EXISTS is_newcomer BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS hostel TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS room_or_block TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE DEFAULT substr(md5(gen_random_uuid()::text), 1, 12);
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS fellowship_id UUID REFERENCES fellowships(id) ON DELETE CASCADE;
