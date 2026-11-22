@@ -75,21 +75,29 @@ CREATE TABLE IF NOT EXISTS sessions (
   opened_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   closed_at      TIMESTAMPTZ,
   notes          TEXT,
+  share_token    TEXT UNIQUE NOT NULL DEFAULT substr(md5(gen_random_uuid()::text), 1, 12),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (event_id, session_date)
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_fellowship_date ON sessions(fellowship_id, session_date);
+CREATE INDEX IF NOT EXISTS idx_sessions_share_token ON sessions(share_token);
 
--- 6. Attendance Records
+-- 6. Attendance Records (tombstone status + tenant scoped)
 CREATE TABLE IF NOT EXISTS attendance_records (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fellowship_id UUID NOT NULL REFERENCES fellowships(id) ON DELETE CASCADE,
   session_id    UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   member_id     UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   source        TEXT NOT NULL DEFAULT 'self' CHECK (source IN ('self', 'admin_manual', 'code')),
+  status        TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present', 'removed')),
+  device_id     TEXT,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (session_id, member_id)
 );
 CREATE INDEX IF NOT EXISTS idx_attendance_session_member ON attendance_records(session_id, member_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_member_checked ON attendance_records(member_id, checked_in_at);
+CREATE INDEX IF NOT EXISTS idx_attendance_fellowship ON attendance_records(fellowship_id, status);
 
 -- 7. Pending Members (New / Unrecognized entries)
 CREATE TABLE IF NOT EXISTS pending_members (
@@ -116,8 +124,40 @@ CREATE TABLE IF NOT EXISTS terms (
 );
 
 -- ==========================================
--- ROW LEVEL SECURITY (RLS) POLICIES
+-- v4 INCREMENTAL MIGRATION (SAFE TO RE-RUN)
 -- ==========================================
+ALTER TABLE members ADD COLUMN IF NOT EXISTS is_newcomer BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE DEFAULT substr(md5(gen_random_uuid()::text), 1, 12);
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS fellowship_id UUID REFERENCES fellowships(id) ON DELETE CASCADE;
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present', 'removed'));
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS device_id TEXT;
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- Backfill fellowship_id on existing attendance_records & share_token on existing sessions
+UPDATE attendance_records ar
+SET fellowship_id = s.fellowship_id
+FROM sessions s
+WHERE ar.session_id = s.id AND ar.fellowship_id IS NULL;
+
+UPDATE sessions
+SET share_token = substr(md5(gen_random_uuid()::text), 1, 12)
+WHERE share_token IS NULL;
+
+-- ==========================================
+-- ROW LEVEL SECURITY (RLS) + PUBLIC RPCs
+-- ==========================================
+-- Public self-check-in (#/c/:token) and self-join (#/join/:slug) call
+-- SECURITY DEFINER RPCs so anonymous visitors never need direct table grants:
+--   public_fellowship(p_slug TEXT) -> JSONB { ok, id, name, slug }
+--   public_join(p_slug TEXT, p_full_name TEXT, p_phone TEXT, p_department TEXT)
+--     -> JSONB { ok, error?, member_id?, full_name?, code? }
+--   public_session(p_token TEXT)
+--     -> JSONB { ok, reason?, session?, event?, members?, checked? }
+--   public_check_in(p_token TEXT, p_member_id UUID, p_device_id TEXT)
+--     -> JSONB { ok, reason? }
+--   public_join_session(p_token TEXT, p_full_name TEXT, p_phone TEXT, p_department TEXT, p_device_id TEXT)
+--     -> JSONB { ok, error?, member_id?, full_name?, code? }
 ALTER TABLE fellowships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fellowship_admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
@@ -126,14 +166,4 @@ ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pending_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE terms ENABLE ROW LEVEL SECURITY;
-
--- Allow public access with anon key for self-check-in & cross-tenant sync
-CREATE POLICY "Public Read Fellowships" ON fellowships FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Read Admins" ON fellowship_admins FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Read Members" ON members FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Attendance" ON attendance_records FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Sessions" ON sessions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Pending" ON pending_members FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Events" ON events FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public Terms" ON terms FOR ALL USING (true) WITH CHECK (true);
 `;
