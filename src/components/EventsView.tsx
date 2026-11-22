@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Calendar,
   Plus,
@@ -18,15 +19,29 @@ import {
   Search,
   RotateCcw,
   AlertCircle,
+  Send,
+  RefreshCw,
 } from 'lucide-react';
-import type { EventTemplate, Session, Member, AttendanceRecord } from '../types';
+import type { EventTemplate, Fellowship, Session, Member, AttendanceRecord, WcfEventCode, WcfSyncLog } from '../types';
 import { db } from '../lib/db';
 import { queueMutation, markAttendance, unmarkAttendance } from '../lib/syncEngine';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { exportSessionCSV, downloadCSV } from '../lib/exportUtils';
+import { DEFAULT_UNIT, WCF_EVENT_OPTIONS, getUnitFilterOptions } from '../lib/constants';
+import {
+  isWcfFellowship,
+  detectWcfEventCode,
+  getRawWcfEventOverride,
+  setWcfEventCodeOverride,
+  getWcfEventCodeForEvent,
+  syncSessionToWcfTracker,
+} from '../lib/wcfSync';
 import { ShareCheckInModal } from './ShareCheckInModal';
 
+const NO_SYNC_LOGS: WcfSyncLog[] = [];
+
 interface EventsViewProps {
+  fellowship: Fellowship | null;
   fellowshipId: string;
   events: EventTemplate[];
   sessions: Session[];
@@ -41,6 +56,7 @@ interface EventsViewProps {
 }
 
 export const EventsView: React.FC<EventsViewProps> = ({
+  fellowship,
   fellowshipId,
   events,
   sessions,
@@ -55,6 +71,32 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [internalCreateOpen, setInternalCreateOpen] = useState(false);
   const [newEventName, setNewEventName] = useState('');
+
+  // WCF-only follow-up tracker sync UI state (strictly inert for non-WCF fellowships)
+  const isWcf = useMemo(() => isWcfFellowship(fellowship), [fellowship]);
+  const [wcfMapVersion, setWcfMapVersion] = useState(0);
+  const [syncingSessionId, setSyncingSessionId] = useState<string | null>(null);
+  const [wcfSyncBanner, setWcfSyncBanner] = useState<{
+    type: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
+
+  const wcfSyncLogs =
+    useLiveQuery(
+      () =>
+        isWcf && fellowshipId
+          ? db.wcf_sync_logs.where('fellowship_id').equals(fellowshipId).toArray()
+          : NO_SYNC_LOGS,
+      [isWcf, fellowshipId]
+    ) || NO_SYNC_LOGS;
+
+  const wcfLogBySession = useMemo(() => {
+    const map = new Map<string, WcfSyncLog>();
+    for (const log of wcfSyncLogs) {
+      map.set(log.session_id, log);
+    }
+    return map;
+  }, [wcfSyncLogs]);
   
   // Managing session in full modal
   const [managingSessionId, setManagingSessionId] = useState<string | null>(null);
@@ -100,7 +142,31 @@ export const EventsView: React.FC<EventsViewProps> = ({
     );
   }, [attendanceRecords, managingSession]);
 
-  const departments = ['all', 'Choir', 'Ushering', 'Media', 'Technical', 'Welfare', 'Bible Study', 'General'];
+  const departments = useMemo(() => getUnitFilterOptions(members), [members]);
+
+  // Trigger WCF Evangelism & Follow-up Tracker sync (no-op for non-WCF fellowships)
+  const triggerWcfSync = async (sess: Session, ev: EventTemplate | null) => {
+    if (!isWcf) return;
+    setSyncingSessionId(sess.id);
+    try {
+      const outcome = await syncSessionToWcfTracker({
+        fellowship,
+        event: ev,
+        session: sess,
+        members,
+        attendanceRecords,
+      });
+      if (outcome.status === 'synced') {
+        setWcfSyncBanner({ type: 'success', text: outcome.message });
+      } else if (outcome.status === 'failed') {
+        setWcfSyncBanner({ type: 'error', text: outcome.message });
+      } else if (outcome.reason !== 'not_wcf') {
+        setWcfSyncBanner({ type: 'info', text: outcome.message });
+      }
+    } finally {
+      setSyncingSessionId(null);
+    }
+  };
 
   // Handle Create Event
   const handleCreateEvent = async (e: React.FormEvent) => {
@@ -223,6 +289,13 @@ export const EventsView: React.FC<EventsViewProps> = ({
         }
       }
       onRefresh();
+
+      // Automatically sync absentees to WCF Follow-up Tracker when a WCF session closes
+      if (!isOpening && isWcf) {
+        const closedSess: Session = { ...sess, status: 'closed', closed_at: closedAt };
+        const parentEvent = events.find(e => e.id === sess.event_id) || selectedEvent;
+        triggerWcfSync(closedSess, parentEvent);
+      }
     }
   };
 
@@ -405,8 +478,50 @@ export const EventsView: React.FC<EventsViewProps> = ({
               </div>
               <h2 className="text-3xl sm:text-4xl font-black text-white leading-tight tracking-tight text-balance break-words">{selectedEvent.name}</h2>
               <p className="text-xs sm:text-sm text-zinc-400">
-                {eventSessions.length} session{eventSessions.length !== 1 ? 's' : ''} • {activeMembers.length} members
+                {eventSessions.length} session{eventSessions.length !== 1 ? 's' : ''} / {activeMembers.length} members
               </p>
+
+              {/* WCF-Only Follow-up Tracker Mapping Selector */}
+              {isWcf && (() => {
+                void wcfMapVersion;
+                const currentOverride = getRawWcfEventOverride(selectedEvent.id);
+                const detected = detectWcfEventCode(selectedEvent.name);
+                const effectiveCode = getWcfEventCodeForEvent(selectedEvent);
+
+                return (
+                  <div className="pt-2 flex flex-wrap items-center gap-2">
+                    <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                      WCF Follow-up Sync:
+                    </label>
+                    <select
+                      value={currentOverride}
+                      onChange={e => {
+                        setWcfEventCodeOverride(
+                          selectedEvent.id,
+                          e.target.value as WcfEventCode | 'none' | 'auto'
+                        );
+                        setWcfMapVersion(v => v + 1);
+                      }}
+                      className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-xs font-bold text-zinc-200 focus:outline-none cursor-pointer"
+                    >
+                      <option value="auto">
+                        Auto-detect ({detected ? WCF_EVENT_OPTIONS.find(o => o.code === detected)?.label : 'Not mapped'})
+                      </option>
+                      {WCF_EVENT_OPTIONS.map(opt => (
+                        <option key={opt.code} value={opt.code}>
+                          {opt.label} ({opt.day})
+                        </option>
+                      ))}
+                      <option value="none">Do not sync this event</option>
+                    </select>
+                    <span className="text-[11px] text-zinc-500">
+                      {effectiveCode
+                        ? 'Auto-sends absentees when session ends'
+                        : 'Skipped when session ends'}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Primary Action Button */}
@@ -446,6 +561,28 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* WCF Sync Feedback Banner */}
+        {isWcf && wcfSyncBanner && (
+          <div
+            className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between gap-3 ${
+              wcfSyncBanner.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-200'
+                : wcfSyncBanner.type === 'error'
+                  ? 'bg-rose-950/60 border-rose-800/60 text-rose-200'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-300'
+            }`}
+          >
+            <span>{wcfSyncBanner.text}</span>
+            <button
+              type="button"
+              onClick={() => setWcfSyncBanner(null)}
+              className="p-1 text-zinc-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Sessions Recorded List */}
         <div className="space-y-3 sm:space-y-4">
@@ -549,12 +686,32 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => exportSessionCSV(sess, selectedEvent.name)}
-                        className="px-3 py-2 text-zinc-400 hover:text-white rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer"
-                        title="Download CSV for this date"
+                        onClick={() => exportSessionCSV(sess, selectedEvent.name, 'absent')}
+                        className="px-3 py-2 text-zinc-400 hover:text-yellow-300 rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer text-xs font-bold flex items-center gap-1"
+                        title="Download Absentees CSV for this date"
                       >
                         <FileSpreadsheet className="w-4 h-4" />
+                        <span className="hidden sm:inline">Absentees</span>
                       </button>
+
+                      {isWcf && !isSessionLive && (
+                        <button
+                          type="button"
+                          disabled={syncingSessionId === sess.id}
+                          onClick={() => triggerWcfSync(sess, selectedEvent)}
+                          className="px-3 py-2 text-zinc-300 hover:text-yellow-300 rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer text-xs font-bold flex items-center gap-1 disabled:opacity-50"
+                          title="Sync absentees to WCF Evangelism & Follow-up Tracker"
+                        >
+                          {syncingSessionId === sess.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-yellow-400" />
+                          ) : (
+                            <Send className="w-3.5 h-3.5 text-yellow-400" />
+                          )}
+                          <span className="hidden sm:inline">
+                            {wcfLogBySession.get(sess.id)?.status === 'synced' ? 'Re-sync' : 'Sync WCF'}
+                          </span>
+                        </button>
+                      )}
 
                       {isSessionLive && (
                         <button
@@ -576,6 +733,28 @@ export const EventsView: React.FC<EventsViewProps> = ({
                         <Trash2 className="w-4 h-4" />
                       </button>
                       </div>
+
+                      {isWcf && !isSessionLive && (() => {
+                        const log = wcfLogBySession.get(sess.id);
+                        if (!log) return null;
+                        return (
+                          <p
+                            className={`text-[11px] font-semibold ${
+                              log.status === 'synced'
+                                ? 'text-emerald-400'
+                                : log.status === 'failed'
+                                  ? 'text-rose-400'
+                                  : 'text-zinc-500'
+                            }`}
+                          >
+                            {log.status === 'synced'
+                              ? `WCF Tracker: synced ${log.processed} absentee${log.processed === 1 ? '' : 's'}${log.skipped_no_phone > 0 ? ` (${log.skipped_no_phone} missing phone)` : ''}`
+                              : log.status === 'failed'
+                                ? `WCF Tracker sync failed: ${log.error || 'Try again'}`
+                                : log.error || 'WCF Tracker: skipped'}
+                          </p>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -711,12 +890,42 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => exportSessionCSV(managingSession, selectedEvent.name)}
-                          className="p-2.5 text-zinc-400 hover:text-white rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer"
-                          title="Download CSV"
+                          onClick={() => exportSessionCSV(managingSession, selectedEvent.name, modalTab)}
+                          className="px-3 py-2.5 text-zinc-300 hover:text-white rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer text-xs font-bold flex items-center gap-1.5"
+                          title={
+                            modalTab === 'absent'
+                              ? 'Download Absentees CSV'
+                              : modalTab === 'present'
+                                ? 'Download Present CSV'
+                                : 'Download Full Attendance Register CSV'
+                          }
                         >
-                          <FileSpreadsheet className="w-4 h-4" />
+                          <FileSpreadsheet className="w-4 h-4 text-yellow-400" />
+                          <span>
+                            {modalTab === 'absent'
+                              ? 'Absentees CSV'
+                              : modalTab === 'present'
+                                ? 'Present CSV'
+                                : 'Full CSV'}
+                          </span>
                         </button>
+
+                        {isWcf && managingSession.status === 'closed' && (
+                          <button
+                            type="button"
+                            disabled={syncingSessionId === managingSession.id}
+                            onClick={() => triggerWcfSync(managingSession, selectedEvent)}
+                            className="px-3 py-2.5 text-zinc-300 hover:text-yellow-300 rounded-xl transition border border-zinc-800 hover:bg-zinc-800 cursor-pointer text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
+                            title="Sync absentees to WCF Follow-up Tracker"
+                          >
+                            {syncingSessionId === managingSession.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-yellow-400" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5 text-yellow-400" />
+                            )}
+                            <span>Sync WCF</span>
+                          </button>
+                        )}
 
                         {managingSession.status === 'open' && (
                           <button
@@ -866,7 +1075,10 @@ export const EventsView: React.FC<EventsViewProps> = ({
                               {member.full_name}
                             </div>
                             <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-                              {member.department || 'General'}
+                              {member.department || DEFAULT_UNIT}
+                              {member.hostel
+                                ? ` / ${member.hostel}${member.room_or_block ? `, ${member.room_or_block}` : ''}`
+                                : ''}
                             </div>
                           </div>
                         </div>

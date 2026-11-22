@@ -9,6 +9,7 @@ import type {
   Term,
   SyncQueueItem,
   AdminUser,
+  WcfSyncLog,
 } from '../types';
 
 export class FellowshipDatabase extends Dexie {
@@ -21,6 +22,7 @@ export class FellowshipDatabase extends Dexie {
   terms!: Table<Term, string>;
   sync_queue!: Table<SyncQueueItem, number>;
   admins!: Table<AdminUser, string>;
+  wcf_sync_logs!: Table<WcfSyncLog, string>;
 
   constructor() {
     super('FellowshipAttendanceDB');
@@ -122,6 +124,21 @@ export class FellowshipDatabase extends Dexie {
           sess.share_token = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8);
         }
       });
+    });
+
+    // v5 adds hostel index on members + local WCF follow-up tracker sync logs
+    this.version(5).stores({
+      fellowships: 'id, name, slug',
+      members: 'id, fellowship_id, full_name, is_active, department, hostel, check_in_code',
+      events: 'id, fellowship_id, is_active',
+      sessions: 'id, fellowship_id, event_id, session_date, status, share_token, [event_id+session_date]',
+      attendance_records:
+        'id, fellowship_id, session_id, member_id, status, sync_status, [session_id+member_id]',
+      pending_members: 'id, fellowship_id, session_id, status, sync_status',
+      terms: 'id, fellowship_id, start_date, end_date',
+      sync_queue: '++id, type, action, created_at',
+      admins: 'id, fellowship_id, username, email',
+      wcf_sync_logs: 'session_id, fellowship_id, status, synced_at',
     });
   }
 }

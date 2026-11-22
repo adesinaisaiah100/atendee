@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Calendar, CheckCircle2, UserPlus, AlertCircle, Phone, WifiOff } from 'lucide-react';
+import { Search, X, Calendar, CheckCircle2, UserPlus, AlertCircle, Phone, WifiOff, Home, DoorOpen } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ConfirmModal } from './ConfirmModal';
 import { AtendeeLogo } from './AtendeeLogo';
@@ -8,6 +8,7 @@ import type { Member, Session, EventTemplate } from '../types';
 import { db } from '../lib/db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDeviceId } from '../lib/syncEngine';
+import { UNITS, DEFAULT_UNIT, COMMON_HOSTELS } from '../lib/constants';
 
 interface CheckInViewProps {
   /** Rotatable session token from #/c/:token (preferred). */
@@ -26,11 +27,6 @@ interface PublicSessionPayload {
 }
 
 type ViewState = 'loading' | 'ended' | 'offline' | 'ready' | 'success';
-
-const DEPARTMENTS = [
-  'General', 'Choir', 'Ushering', 'Media', 'Technical',
-  'Prayer', 'Welfare', 'Bible Study', 'Children', 'Youth', 'Other',
-];
 
 /**
  * Public self check-in via a session token (#/c/:token).
@@ -59,7 +55,9 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
   const [showReg, setShowReg] = useState(false);
   const [regName, setRegName] = useState('');
   const [regPhone, setRegPhone] = useState('');
-  const [regDept, setRegDept] = useState('General');
+  const [regHostel, setRegHostel] = useState('');
+  const [regRoom, setRegRoom] = useState('');
+  const [regDept, setRegDept] = useState<string>(DEFAULT_UNIT);
   const [isRegistering, setIsRegistering] = useState(false);
   const [regError, setRegError] = useState('');
 
@@ -190,19 +188,48 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!session || !activeToken || !regName.trim()) return;
+    if (!session || !activeToken) return;
+    const name = regName.trim();
+    const phone = regPhone.trim();
+    const hostel = regHostel.trim();
+    const room = regRoom.trim();
+    if (!name) {
+      setRegError('Please enter your full name.');
+      return;
+    }
+    if (!phone) {
+      setRegError('Please enter your phone number.');
+      return;
+    }
+    if (!hostel) {
+      setRegError('Please enter your hostel or hall of residence.');
+      return;
+    }
     setRegError('');
     setIsRegistering(true);
     try {
-      const name = regName.trim();
-
-      const { data, error } = await supabase.rpc('public_join_session', {
+      let rpcRes = await supabase.rpc('public_join_session', {
         p_token: activeToken,
         p_full_name: name,
-        p_phone: regPhone.trim() || null,
+        p_phone: phone,
         p_department: regDept,
         p_device_id: getDeviceId(),
+        p_hostel: hostel,
+        p_room_or_block: room || null,
       });
+
+      // Fallback if Postgres RPC has not yet been updated with p_hostel / p_room_or_block
+      if (rpcRes.error && (rpcRes.error.code === 'PGRST202' || rpcRes.error.message?.includes('public_join_session'))) {
+        rpcRes = await supabase.rpc('public_join_session', {
+          p_token: activeToken,
+          p_full_name: name,
+          p_phone: phone,
+          p_department: regDept,
+          p_device_id: getDeviceId(),
+        });
+      }
+
+      const { data, error } = rpcRes;
 
       if (error) throw error;
 
@@ -223,7 +250,9 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
         id: payload.member_id,
         fellowship_id: session.fellowship_id,
         full_name: payload.full_name || name,
-        phone: regPhone.trim() || undefined,
+        phone,
+        hostel,
+        room_or_block: room || undefined,
         department: regDept,
         check_in_code: payload.code || '',
         joined_at: new Date().toISOString().split('T')[0],
@@ -241,6 +270,8 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
       setShowReg(false);
       setRegName('');
       setRegPhone('');
+      setRegHostel('');
+      setRegRoom('');
       setSuccessName(newMember.full_name);
       setSuccessCode(payload.code || null);
       setAlreadyWas(false);
@@ -480,9 +511,37 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
                 <Phone className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="tel"
-                  placeholder="Phone / WhatsApp (optional)"
+                  required
+                  placeholder="Phone / WhatsApp *"
                   value={regPhone}
                   onChange={e => setRegPhone(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none"
+                />
+              </div>
+              <div className="relative">
+                <Home className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  list="checkin-hostel-suggestions"
+                  placeholder="Hostel / Hall of Residence *"
+                  value={regHostel}
+                  onChange={e => setRegHostel(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none"
+                />
+                <datalist id="checkin-hostel-suggestions">
+                  {COMMON_HOSTELS.map(h => (
+                    <option key={h} value={h} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="relative">
+                <DoorOpen className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Room / Block (optional, e.g. Block B, Room 14)"
+                  value={regRoom}
+                  onChange={e => setRegRoom(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none"
                 />
               </div>
@@ -491,7 +550,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
                 onChange={e => setRegDept(e.target.value)}
                 className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-xl text-white text-sm focus:outline-none cursor-pointer"
               >
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
               <div className="flex gap-2">
                 <button
@@ -503,7 +562,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) =>
                 </button>
                 <button
                   type="submit"
-                  disabled={isRegistering || !regName.trim()}
+                  disabled={isRegistering || !regName.trim() || !regPhone.trim() || !regHostel.trim()}
                   className="flex-1 py-3 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-black font-black text-xs rounded-xl transition cursor-pointer"
                 >
                   {isRegistering ? 'Saving…' : 'Register & Check In'}

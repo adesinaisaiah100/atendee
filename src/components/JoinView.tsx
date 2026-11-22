@@ -9,9 +9,12 @@ import {
   User,
   Sparkles,
   ArrowRight,
+  Home,
+  DoorOpen,
 } from 'lucide-react';
 import { db } from '../lib/db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { UNITS, DEFAULT_UNIT, COMMON_HOSTELS } from '../lib/constants';
 import { AtendeeLogo } from './AtendeeLogo';
 import { InstallPrompt } from './InstallPrompt';
 import type { Fellowship } from '../types';
@@ -28,20 +31,6 @@ interface PublicJoinPayload {
   code?: string;
 }
 
-const DEPARTMENTS = [
-  'General',
-  'Choir',
-  'Ushering',
-  'Media',
-  'Technical',
-  'Prayer',
-  'Welfare',
-  'Bible Study',
-  'Children',
-  'Youth',
-  'Other',
-] as const;
-
 type ViewState = 'loading' | 'not-found' | 'form' | 'submitting' | 'success';
 
 export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
@@ -49,7 +38,9 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
   const [fellowship, setFellowship] = useState<Fellowship | null>(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [department, setDepartment] = useState('General');
+  const [hostel, setHostel] = useState('');
+  const [roomOrBlock, setRoomOrBlock] = useState('');
+  const [department, setDepartment] = useState<string>(DEFAULT_UNIT);
   const [error, setError] = useState('');
   const [generatedCode, setGeneratedCode] = useState('');
   const [copied, setCopied] = useState(false);
@@ -113,8 +104,20 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
     if (!fellowship) return;
 
     const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedHostel = hostel.trim();
+    const trimmedRoom = roomOrBlock.trim();
+
     if (!trimmedName) {
       setError('Please enter your full name.');
+      return;
+    }
+    if (!trimmedPhone) {
+      setError('Please enter your phone number.');
+      return;
+    }
+    if (!trimmedHostel) {
+      setError('Please enter your hostel or hall of residence.');
       return;
     }
 
@@ -122,12 +125,26 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
     setViewState('submitting');
 
     try {
-      const { data, error: sbError } = await supabase.rpc('public_join', {
+      let rpcRes = await supabase.rpc('public_join', {
         p_slug: slug.toLowerCase(),
         p_full_name: trimmedName,
-        p_phone: phone.trim() || null,
-        p_department: department || 'General',
+        p_phone: trimmedPhone,
+        p_department: department || DEFAULT_UNIT,
+        p_hostel: trimmedHostel,
+        p_room_or_block: trimmedRoom || null,
       });
+
+      // Fallback if Postgres RPC has not yet been updated with p_hostel / p_room_or_block
+      if (rpcRes.error && (rpcRes.error.code === 'PGRST202' || rpcRes.error.message?.includes('public_join'))) {
+        rpcRes = await supabase.rpc('public_join', {
+          p_slug: slug.toLowerCase(),
+          p_full_name: trimmedName,
+          p_phone: trimmedPhone,
+          p_department: department || DEFAULT_UNIT,
+        });
+      }
+
+      const { data, error: sbError } = rpcRes;
 
       if (sbError) throw sbError;
 
@@ -301,11 +318,12 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
               <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center gap-1.5">
                 <Phone className="w-3.5 h-3.5 text-yellow-400" />
                 <span>Phone Number</span>
-                <span className="text-[11px] text-zinc-500 font-normal">(Optional)</span>
+                <span className="text-rose-400">*</span>
               </label>
               <input
                 type="tel"
-                placeholder="e.g. +234 803 123 4567"
+                required
+                placeholder="e.g. 0803 123 4567"
                 value={phone}
                 onChange={e => {
                   setPhone(e.target.value);
@@ -317,18 +335,57 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
 
             <div>
               <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-yellow-400" />
-                <span>Department / Unit</span>
+                <Home className="w-3.5 h-3.5 text-yellow-400" />
+                <span>Hostel / Hall of Residence</span>
+                <span className="text-rose-400">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                list="join-hostel-suggestions"
+                placeholder="e.g. Tedder Hall, Off-Campus"
+                value={hostel}
+                onChange={e => {
+                  setHostel(e.target.value);
+                  setError('');
+                }}
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
+              />
+              <datalist id="join-hostel-suggestions">
+                {COMMON_HOSTELS.map(h => (
+                  <option key={h} value={h} />
+                ))}
+              </datalist>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <DoorOpen className="w-3.5 h-3.5 text-yellow-400" />
+                <span>Room / Block</span>
                 <span className="text-[11px] text-zinc-500 font-normal">(Optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Block B, Room 14"
+                value={roomOrBlock}
+                onChange={e => setRoomOrBlock(e.target.value)}
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-yellow-400" />
+                <span>Unit / Department</span>
               </label>
               <select
                 value={department}
                 onChange={e => setDepartment(e.target.value)}
                 className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition cursor-pointer"
               >
-                {DEPARTMENTS.map(dept => (
-                  <option key={dept} value={dept} className="bg-zinc-900 text-white">
-                    {dept}
+                {UNITS.map(unit => (
+                  <option key={unit} value={unit} className="bg-zinc-900 text-white">
+                    {unit}
                   </option>
                 ))}
               </select>

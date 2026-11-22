@@ -1,9 +1,12 @@
 import * as XLSX from 'xlsx';
+import { DEFAULT_UNIT } from './constants';
 
 export interface ParsedMemberRow {
   full_name: string;
   phone?: string;
   department?: string;
+  hostel?: string;
+  room_or_block?: string;
 }
 
 export interface ParseResult {
@@ -14,7 +17,8 @@ export interface ParseResult {
 
 /**
  * Parse an Excel (.xlsx, .xls) or CSV file buffer/array.
- * Intelligently recognizes all variations of church, campus, fellowship, and org rosters.
+ * Intelligently recognizes church, campus, fellowship, and org rosters,
+ * separating Hostel/Hall, Room/Block, and Unit/Department cleanly.
  */
 export async function parseMembersFile(file: File, existingNames: Set<string>): Promise<ParseResult> {
   const data = await file.arrayBuffer();
@@ -25,7 +29,6 @@ export async function parseMembersFile(file: File, existingNames: Set<string>): 
   }
 
   const sheet = workbook.Sheets[firstSheetName];
-  // Convert sheet to JSON rows as array of arrays
   const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
   if (!rows || rows.length === 0) {
     return { valid: [], duplicates: 0, errors: 0 };
@@ -37,6 +40,7 @@ export async function parseMembersFile(file: File, existingNames: Set<string>): 
   let lastNameIdx = -1;
   let phoneIdx = -1;
   let deptIdx = -1;
+  let hostelIdx = -1;
   let roomIdx = -1;
 
   const headerRow = rows[0] || [];
@@ -74,33 +78,55 @@ export async function parseMembersFile(file: File, existingNames: Set<string>): 
     ) {
       phoneIdx = idx;
     }
-    // 4. Department / Unit / Hostel / Residence / Group / Hall
+    // 4. Hostel / Hall / Residence
+    else if (
+      clean.includes('hostel') ||
+      clean.includes('hall') ||
+      clean.includes('residence') ||
+      clean.includes('accommodation') ||
+      clean.includes('location')
+    ) {
+      hostelIdx = idx;
+    }
+    // 5. Room / Block
+    else if (
+      clean.includes('room') ||
+      clean.includes('block') ||
+      clean === 'roomno' ||
+      clean === 'roomorblock'
+    ) {
+      roomIdx = idx;
+    }
+    // 6. Unit / Department / Ministry
     else if (
       clean.includes('dept') ||
       clean.includes('department') ||
       clean.includes('unit') ||
+      clean.includes('ministry') ||
       clean.includes('role') ||
       clean.includes('group') ||
-      clean.includes('team') ||
-      clean.includes('hostel') ||
-      clean.includes('hall') ||
-      clean.includes('residence') ||
-      clean.includes('location')
+      clean.includes('team')
     ) {
       deptIdx = idx;
     }
-    // 5. Room No
-    else if (clean.includes('room') || clean === 'roomno') {
-      roomIdx = idx;
-    }
   });
 
-  const hasHeaders = nameIdx !== -1 || firstNameIdx !== -1 || phoneIdx !== -1 || deptIdx !== -1;
+  const hasHeaders =
+    nameIdx !== -1 ||
+    firstNameIdx !== -1 ||
+    phoneIdx !== -1 ||
+    deptIdx !== -1 ||
+    hostelIdx !== -1 ||
+    roomIdx !== -1;
   const startIndex = hasHeaders ? 1 : 0;
 
   if (nameIdx === -1 && firstNameIdx === -1) nameIdx = 0;
   if (phoneIdx === -1) phoneIdx = 1;
-  if (deptIdx === -1) deptIdx = 2;
+  if (!hasHeaders) {
+    if (hostelIdx === -1) hostelIdx = 2;
+    if (roomIdx === -1) roomIdx = 3;
+    if (deptIdx === -1) deptIdx = 4;
+  }
 
   const valid: ParsedMemberRow[] = [];
   let duplicates = 0;
@@ -121,8 +147,9 @@ export async function parseMembersFile(file: File, existingNames: Set<string>): 
     }
 
     const rawPhone = phoneIdx !== -1 && row[phoneIdx] !== undefined ? String(row[phoneIdx]).trim() : '';
-    const rawDept = deptIdx !== -1 && row[deptIdx] !== undefined ? String(row[deptIdx]).trim() : '';
+    const rawHostel = hostelIdx !== -1 && row[hostelIdx] !== undefined ? String(row[hostelIdx]).trim() : '';
     const rawRoom = roomIdx !== -1 && row[roomIdx] !== undefined ? String(row[roomIdx]).trim() : '';
+    const rawDept = deptIdx !== -1 && row[deptIdx] !== undefined ? String(row[deptIdx]).trim() : '';
 
     if (!rawName || rawName.length < 2 || /^[0-9]+$/.test(rawName)) {
       errors++;
@@ -137,20 +164,12 @@ export async function parseMembersFile(file: File, existingNames: Set<string>): 
 
     seenInFile.add(normalizedName);
 
-    // Combine Department/Hostel and Room Number if both present
-    let finalDept = 'General';
-    if (rawDept && rawRoom) {
-      finalDept = `${rawDept} ${rawRoom}`;
-    } else if (rawDept) {
-      finalDept = rawDept;
-    } else if (rawRoom) {
-      finalDept = `Room ${rawRoom}`;
-    }
-
     valid.push({
       full_name: rawName,
       phone: rawPhone ? rawPhone.replace(/[^0-9+() -]/g, '').trim() : undefined,
-      department: finalDept,
+      hostel: rawHostel || undefined,
+      room_or_block: rawRoom || undefined,
+      department: rawDept || DEFAULT_UNIT,
     });
   }
 
@@ -162,11 +181,12 @@ export async function parseMembersFile(file: File, existingNames: Set<string>): 
  */
 export function downloadSampleCSVTemplate() {
   const wsData = [
-    ['Full Name', 'Phone Number', 'Department / Unit', 'Room / Notes'],
-    ['John Doe', '+234 803 123 4567', 'Choir', 'Hall A'],
-    ['Sarah Jenkins', '+234 802 987 6543', 'Ushering', 'Room 12'],
-    ['David Emmanuel', '+234 814 555 0192', 'Media', ''],
-    ['Prosper Adewale', '07039975804', 'Mellanby', 'A1'],
+    ['Full Name', 'Phone Number', 'Hostel / Hall', 'Room / Block', 'Unit / Department'],
+    ['Boluwatife Adeleke', '08012345678', 'Tedder Hall', 'Block B, Room 14', 'Ushering'],
+    ['Sarah Jenkins', '08029876543', 'Queen Idia Hall', 'Block A, Room 12', 'Follow-up'],
+    ['David Emmanuel', '08145550192', 'Mellanby Hall', 'A1', 'Media'],
+    ['Prosper Adewale', '07039975804', 'Independence Hall', 'Block C, Room 4', 'Evangelism'],
+    ['Grace Okafor', '08091122334', 'Off-Campus', 'Agbowo', 'No Unit'],
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);

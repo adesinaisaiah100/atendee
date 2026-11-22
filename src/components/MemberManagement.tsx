@@ -21,6 +21,7 @@ import { queueMutation } from '../lib/syncEngine';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { generateUniqueCode, generateBatchCodes } from '../lib/codeGenerator';
 import { parseMembersFile, downloadSampleCSVTemplate, type ParseResult } from '../lib/importUtils';
+import { UNITS, DEFAULT_UNIT, COMMON_HOSTELS, getUnitFilterOptions } from '../lib/constants';
 
 interface MemberManagementProps {
   fellowshipId: string;
@@ -69,9 +70,11 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   // Manual Add Form
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [department, setDepartment] = useState('General');
+  const [hostel, setHostel] = useState('');
+  const [roomOrBlock, setRoomOrBlock] = useState('');
+  const [department, setDepartment] = useState<string>(DEFAULT_UNIT);
 
-  const departments = ['all', 'Choir', 'Ushering', 'Media', 'Technical', 'Welfare', 'Bible Study', 'General'];
+  const departments = useMemo(() => getUnitFilterOptions(members), [members]);
 
   const newcomerCount = useMemo(() => members.filter(m => m.is_newcomer && m.is_active).length, [members]);
 
@@ -88,6 +91,8 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
             m.full_name.toLowerCase().includes(q) ||
             (m.phone && m.phone.includes(q)) ||
             (m.department && m.department.toLowerCase().includes(q)) ||
+            (m.hostel && m.hostel.toLowerCase().includes(q)) ||
+            (m.room_or_block && m.room_or_block.toLowerCase().includes(q)) ||
             (m.check_in_code && m.check_in_code.toLowerCase().includes(q))
           );
         }
@@ -99,7 +104,9 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   const handleOpenAdd = () => {
     setFullName('');
     setPhone('');
-    setDepartment('General');
+    setHostel('');
+    setRoomOrBlock('');
+    setDepartment(DEFAULT_UNIT);
     setEditingMember(null);
     setIsModalOpen(true);
   };
@@ -107,20 +114,24 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   const handleOpenEdit = (member: Member) => {
     setFullName(member.full_name);
     setPhone(member.phone || '');
-    setDepartment(member.department || 'General');
+    setHostel(member.hostel || '');
+    setRoomOrBlock(member.room_or_block || '');
+    setDepartment(member.department || DEFAULT_UNIT);
     setEditingMember(member);
     setIsModalOpen(true);
   };
 
   const handleSaveMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim()) return;
+    if (!fullName.trim() || !phone.trim() || !hostel.trim()) return;
 
     if (editingMember) {
       const updated: Member = {
         ...editingMember,
         full_name: fullName.trim(),
-        phone: phone.trim() || undefined,
+        phone: phone.trim(),
+        hostel: hostel.trim(),
+        room_or_block: roomOrBlock.trim() || undefined,
         department,
       };
       await db.members.put(updated);
@@ -138,7 +149,9 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         id: crypto.randomUUID(),
         fellowship_id: fellowshipId,
         full_name: fullName.trim(),
-        phone: phone.trim() || undefined,
+        phone: phone.trim(),
+        hostel: hostel.trim(),
+        room_or_block: roomOrBlock.trim() || undefined,
         department,
         check_in_code: code,
         joined_at: new Date().toISOString().split('T')[0],
@@ -226,7 +239,9 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
         fellowship_id: fellowshipId,
         full_name: r.full_name,
         phone: r.phone,
-        department: r.department || 'General',
+        hostel: r.hostel,
+        room_or_block: r.room_or_block,
+        department: r.department || DEFAULT_UNIT,
         check_in_code: codes[i],
         joined_at: new Date().toISOString().split('T')[0],
         is_active: true,
@@ -425,15 +440,20 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                   </div>
                   <div className="text-[11px] sm:text-xs text-zinc-400 flex items-center gap-1.5 flex-wrap sm:flex-nowrap mt-0.5 min-w-0 overflow-hidden">
                     <span className="text-zinc-300 font-medium truncate max-w-[120px]">
-                      {member.department || 'General'}
+                      {member.department || DEFAULT_UNIT}
                     </span>
+                    {member.hostel && (
+                      <span className="text-zinc-400 truncate max-w-[140px]">
+                        / {member.hostel}{member.room_or_block ? `, ${member.room_or_block}` : ''}
+                      </span>
+                    )}
                     {member.check_in_code && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-500 flex-shrink-0">
                         {member.check_in_code}
                       </span>
                     )}
                     {member.phone && (
-                      <span className="text-zinc-500 hidden sm:inline truncate">• {member.phone}</span>
+                      <span className="text-zinc-500 hidden sm:inline truncate">/ {member.phone}</span>
                     )}
                   </div>
                 </div>
@@ -624,11 +644,11 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                       {parseResult.valid.slice(0, 3).map((r, idx) => (
                         <div
                           key={idx}
-                          className="text-xs bg-zinc-900/80 px-3 py-1.5 rounded-lg flex items-center justify-between text-zinc-300"
+                          className="text-xs bg-zinc-900/80 px-3 py-1.5 rounded-lg flex items-center justify-between gap-2 text-zinc-300"
                         >
-                          <span className="font-bold text-white">{r.full_name}</span>
-                          <span className="text-zinc-400">{r.phone || 'No phone'}</span>
-                          <span className="text-yellow-400/90 text-[11px] font-semibold">{r.department}</span>
+                          <span className="font-bold text-white truncate">{r.full_name}</span>
+                          <span className="text-zinc-400 truncate">{r.hostel || r.phone || 'No hostel'}</span>
+                          <span className="text-yellow-400/90 text-[11px] font-semibold shrink-0">{r.department}</span>
                         </div>
                       ))}
                     </div>
@@ -715,15 +735,50 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-300 mb-1.5">
-                  Phone Number <span className="text-zinc-500 font-normal">(Optional)</span>
+                  Phone Number <span className="text-yellow-400">*</span>
                 </label>
                 <input
                   type="tel"
-                  placeholder="e.g. +234 803 123 4567"
+                  required
+                  placeholder="e.g. 0803 123 4567"
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
                   className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                    Hostel / Hall <span className="text-yellow-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    list="admin-hostel-suggestions"
+                    placeholder="e.g. Tedder Hall"
+                    value={hostel}
+                    onChange={e => setHostel(e.target.value)}
+                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
+                  />
+                  <datalist id="admin-hostel-suggestions">
+                    {COMMON_HOSTELS.map(h => (
+                      <option key={h} value={h} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 mb-1.5">
+                    Room / Block <span className="text-zinc-500 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Block B, Room 14"
+                    value={roomOrBlock}
+                    onChange={e => setRoomOrBlock(e.target.value)}
+                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
+                  />
+                </div>
               </div>
 
               <div>
@@ -735,13 +790,14 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
                   onChange={e => setDepartment(e.target.value)}
                   className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-yellow-400 rounded-2xl text-white text-sm focus:outline-none transition"
                 >
-                  <option value="General">General Member</option>
-                  <option value="Choir">Choir</option>
-                  <option value="Ushering">Ushering</option>
-                  <option value="Media">Media</option>
-                  <option value="Technical">Technical</option>
-                  <option value="Welfare">Welfare</option>
-                  <option value="Bible Study">Bible Study</option>
+                  {UNITS.map(u => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                  {department && !(UNITS as readonly string[]).includes(department) && (
+                    <option value={department}>{department}</option>
+                  )}
                 </select>
               </div>
 
@@ -784,7 +840,10 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
               <div>
                 <h3 className="text-lg font-bold text-white">{viewingProfileMember.full_name}</h3>
                 <p className="text-xs text-zinc-400">
-                  {viewingProfileMember.department || 'General'}
+                  {viewingProfileMember.department || DEFAULT_UNIT}
+                  {viewingProfileMember.hostel
+                    ? ` / ${viewingProfileMember.hostel}${viewingProfileMember.room_or_block ? `, ${viewingProfileMember.room_or_block}` : ''}`
+                    : ''}
                 </p>
               </div>
             </div>
