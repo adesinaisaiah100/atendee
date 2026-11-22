@@ -1,6 +1,7 @@
 export type Gender = 'male' | 'female' | 'other';
 export type SessionStatus = 'open' | 'closed';
 export type AttendanceSource = 'self' | 'admin_manual' | 'code';
+export type AttendanceStatus = 'present' | 'removed';
 export type PendingStatus = 'pending' | 'merged' | 'deleted';
 export type SyncStatus = 'synced' | 'pending_sync' | 'error';
 
@@ -53,14 +54,22 @@ export interface Session {
   opened_at: string;
   closed_at?: string;
   notes?: string;
+  /** Short, rotatable public token used by the self check-in link (#/c/:token). */
+  share_token?: string;
+  updated_at?: string;
 }
 
 export interface AttendanceRecord {
   id: string;
+  fellowship_id: string;
   session_id: string;
   member_id: string;
   checked_in_at: string;
   source: AttendanceSource;
+  /** Tombstone: rows are never deleted during a session, only flipped to 'removed'. */
+  status: AttendanceStatus;
+  device_id?: string;
+  updated_at: string;
   sync_status?: SyncStatus;
 }
 

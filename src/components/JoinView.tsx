@@ -11,15 +11,21 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { db } from '../lib/db';
-import { generateUniqueCode } from '../lib/codeGenerator';
-import { queueMutation, flushSyncQueue } from '../lib/syncEngine';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AtendeeLogo } from './AtendeeLogo';
 import { InstallPrompt } from './InstallPrompt';
-import type { Fellowship, Member } from '../types';
+import type { Fellowship } from '../types';
 
 interface JoinViewProps {
   slug: string;
+}
+
+interface PublicJoinPayload {
+  ok: boolean;
+  error?: string;
+  member_id?: string;
+  full_name?: string;
+  code?: string;
 }
 
 const DEPARTMENTS = [
@@ -56,35 +62,36 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
       }
 
       try {
-        // 1. Try Local Dexie Database first
-        let found = await db.fellowships.where('slug').equals(slug.toLowerCase()).first();
+        const normalized = slug.toLowerCase();
 
-        // 2. If not found locally, fetch from Supabase (for members joining on their own phone)
-        if (!found && isSupabaseConfigured()) {
-          const { data, error: sbError } = await supabase
-            .from('fellowships')
-            .select('*')
-            .eq('slug', slug.toLowerCase())
-            .maybeSingle();
-
-          if (data && !sbError) {
-            const fellowshipRecord: Fellowship = {
-              id: data.id,
-              name: data.name,
-              slug: data.slug || slug.toLowerCase(),
-              created_at: data.created_at,
-            };
-            found = fellowshipRecord;
-            // Cache locally in Dexie
-            await db.fellowships.put(fellowshipRecord);
-          }
+        // Offline / returning visitor: the device may already know this fellowship.
+        const cached = await db.fellowships.where('slug').equals(normalized).first();
+        if (cached) {
+          setFellowship(cached);
+          setViewState('form');
+          document.title = `Join ${cached.name} — atendee`;
         }
 
-        if (found) {
-          setFellowship(found);
+        if (!isSupabaseConfigured() || !navigator.onLine) {
+          if (!cached) setViewState('not-found');
+          return;
+        }
+
+        const { data, error: sbError } = await supabase.rpc('public_fellowship', { p_slug: normalized });
+        const payload = data as { ok: boolean; id?: string; name?: string; slug?: string } | null;
+
+        if (!sbError && payload?.ok && payload.id && payload.name) {
+          const fellowshipRecord: Fellowship = {
+            id: payload.id,
+            name: payload.name,
+            slug: payload.slug || normalized,
+            created_at: new Date().toISOString(),
+          };
+          setFellowship(fellowshipRecord);
           setViewState('form');
-          document.title = `Join ${found.name} — atendee`;
-        } else {
+          document.title = `Join ${fellowshipRecord.name} — atendee`;
+          try { await db.fellowships.put(fellowshipRecord); } catch { /* ignore */ }
+        } else if (!cached) {
           setViewState('not-found');
           document.title = `Fellowship Not Found — atendee`;
         }
@@ -115,48 +122,38 @@ export const JoinView: React.FC<JoinViewProps> = ({ slug }) => {
     setViewState('submitting');
 
     try {
-      // 1. Check for duplicate name locally
-      const existingMembers = await db.members
-        .where('fellowship_id')
-        .equals(fellowship.id)
-        .toArray();
+      const { data, error: sbError } = await supabase.rpc('public_join', {
+        p_slug: slug.toLowerCase(),
+        p_full_name: trimmedName,
+        p_phone: phone.trim() || null,
+        p_department: department || 'General',
+      });
 
-      const duplicate = existingMembers.some(
-        m => m.full_name.toLowerCase() === trimmedName.toLowerCase()
-      );
+      if (sbError) throw sbError;
 
-      if (duplicate) {
-        setError('A member with this name already exists. Please check with your admin or use a distinctive name.');
-        setViewState('form');
+      const payload = data as PublicJoinPayload | null;
+
+      if (!payload?.ok || !payload.code) {
+        setError(
+          payload?.error === 'duplicate_name'
+            ? 'That name is already registered. Ask your admin to look up your existing code, or add a middle name.'
+            : payload?.error === 'not_found'
+              ? 'This fellowship link is no longer valid. Please confirm it with your admin.'
+              : 'Something went wrong during registration. Please try again.'
+        );
+        setViewState(payload?.error === 'not_found' ? 'not-found' : 'form');
         return;
       }
 
-      // 2. Generate unique code
-      const code = await generateUniqueCode(fellowship.id, fellowship.name);
-
-      const newMember: Member = {
-        id: crypto.randomUUID(),
-        fellowship_id: fellowship.id,
-        full_name: trimmedName,
-        phone: phone.trim() || undefined,
-        department: department || 'General',
-        check_in_code: code,
-        joined_at: new Date().toISOString().split('T')[0],
-        is_active: true,
-        is_newcomer: true,
-        created_at: new Date().toISOString(),
-      };
-
-      // 3. Save to local Dexie & queue sync
-      await db.members.put(newMember);
-      await queueMutation('member', 'insert', newMember);
-      flushSyncQueue();
-
-      setGeneratedCode(code);
+      setGeneratedCode(payload.code);
       setViewState('success');
     } catch (err) {
       console.error('Registration error:', err);
-      setError('Something went wrong during registration. Please try again.');
+      setError(
+        navigator.onLine
+          ? 'Something went wrong during registration. Please try again.'
+          : 'You are offline. Please reconnect and try again.'
+      );
       setViewState('form');
     }
   }

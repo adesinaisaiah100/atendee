@@ -89,6 +89,40 @@ export class FellowshipDatabase extends Dexie {
       sync_queue: '++id, type, action, created_at',
       admins: 'id, fellowship_id, username, email',
     });
+
+    // v4 tenant-scoped attendance (fellowship_id, tombstone status) + session share tokens
+    this.version(4).stores({
+      fellowships: 'id, name, slug',
+      members: 'id, fellowship_id, full_name, is_active, department, check_in_code',
+      events: 'id, fellowship_id, is_active',
+      sessions: 'id, fellowship_id, event_id, session_date, status, share_token, [event_id+session_date]',
+      attendance_records:
+        'id, fellowship_id, session_id, member_id, status, sync_status, [session_id+member_id]',
+      pending_members: 'id, fellowship_id, session_id, status, sync_status',
+      terms: 'id, fellowship_id, start_date, end_date',
+      sync_queue: '++id, type, action, created_at',
+      admins: 'id, fellowship_id, username, email',
+    }).upgrade(async tx => {
+      // Backfill tenant + tombstone fields from the parent session.
+      const sessions = await tx.table('sessions').toArray();
+      const fellowshipBySession = new Map<string, string>(
+        sessions.map((s: any) => [s.id, s.fellowship_id])
+      );
+
+      await tx.table('attendance_records').toCollection().modify((rec: any) => {
+        rec.fellowship_id = rec.fellowship_id || fellowshipBySession.get(rec.session_id) || '';
+        rec.status = rec.status || 'present';
+        rec.updated_at = rec.updated_at || rec.checked_in_at || new Date().toISOString();
+      });
+
+      // Give every existing session a share token so old links keep a target.
+      await tx.table('sessions').toCollection().modify((sess: any) => {
+        sess.updated_at = sess.updated_at || sess.opened_at || new Date().toISOString();
+        if (!sess.share_token) {
+          sess.share_token = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8);
+        }
+      });
+    });
   }
 }
 

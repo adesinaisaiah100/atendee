@@ -274,7 +274,9 @@ export const MemberManagement: React.FC<MemberManagementProps> = ({
   // Compute stats for single member scorecard modal
   const profileStats = useMemo(() => {
     if (!viewingProfileMember) return null;
-    const memberAtt = attendanceRecords.filter(r => r.member_id === viewingProfileMember.id);
+    const memberAtt = attendanceRecords.filter(
+      r => r.member_id === viewingProfileMember.id && r.status !== 'removed'
+    );
     const closedSessions = sessions.filter(s => s.status === 'closed');
     const totalPossible = closedSessions.length;
     const attendedCount = memberAtt.length;

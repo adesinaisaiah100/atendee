@@ -7,11 +7,11 @@ import {
   Calendar,
   Check,
   Clock,
+  Download,
 } from 'lucide-react';
 import type { EventTemplate, Session, Member, AttendanceRecord, InactivityAlert } from '../types';
-import { db } from '../lib/db';
-import { queueMutation } from '../lib/syncEngine';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { markAttendance } from '../lib/syncEngine';
+import { downloadCSV } from '../lib/exportUtils';
 
 interface MissingMembersViewProps {
   fellowshipId: string;
@@ -37,14 +37,14 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
 }) => {
   // Mode selection: 'by_session' (who missed today/specific event) vs 'consecutive' (who missed 1, 2, 3+ services)
   const [viewMode, setViewMode] = useState<'by_session' | 'consecutive'>('by_session');
-  
+
   // By-session filters
   const [selectedEventId, setSelectedEventId] = useState<string>(events[0]?.id || '');
   const [selectedSessionId, setSelectedSessionId] = useState<string>('');
-  
+
   // Consecutive filters
   const [consecutiveEventFilter, setConsecutiveEventFilter] = useState<string>('all');
-  
+
   // Shared search & department filters
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -72,10 +72,12 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
     return events.find(e => e.id === selectedEventId) || null;
   }, [events, selectedEventId]);
 
-  // Records for effective session
+  // Records for effective session (tombstones are not presence)
   const effectiveRecords = useMemo(() => {
     if (!effectiveSession) return [];
-    return attendanceRecords.filter(r => r.session_id === effectiveSession.id);
+    return attendanceRecords.filter(
+      r => r.session_id === effectiveSession.id && r.status !== 'removed'
+    );
   }, [attendanceRecords, effectiveSession]);
 
   // Absentees for the selected session
@@ -101,12 +103,58 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
     });
   }, [sessionAbsentees, departmentFilter, searchQuery]);
 
+  // Base consecutive alerts (all events from props, or scoped to selected event)
+  const eventScopedAlerts = useMemo<InactivityAlert[]>(() => {
+    if (consecutiveEventFilter === 'all') return inactivityAlerts;
+
+    const eventSessions = sessions
+      .filter(s => s.event_id === consecutiveEventFilter)
+      .sort((a, b) => new Date(b.session_date).getTime() - new Date(a.session_date).getTime());
+
+    const recentSessions = eventSessions.slice(0, inactivityThreshold);
+    if (recentSessions.length === 0) return [];
+
+    const alerts: InactivityAlert[] = [];
+    for (const member of activeMembers) {
+      const attendedSessionIds = new Set(
+        attendanceRecords
+          .filter(r => r.member_id === member.id && r.status !== 'removed')
+          .map(r => r.session_id)
+      );
+
+      let consecutiveMissed = 0;
+      for (const session of recentSessions) {
+        if (!attendedSessionIds.has(session.id)) {
+          consecutiveMissed++;
+        } else {
+          break;
+        }
+      }
+
+      if (consecutiveMissed >= Math.min(inactivityThreshold, recentSessions.length)) {
+        const attendedSessions = eventSessions.filter(s => attendedSessionIds.has(s.id));
+        const lastAttendedDate = attendedSessions.length > 0 ? attendedSessions[0].session_date : null;
+        const totalPossible = eventSessions.length;
+        const totalAttended = attendedSessions.length;
+        const ratePct = totalPossible > 0 ? Math.round((totalAttended / totalPossible) * 100) : 0;
+
+        alerts.push({
+          member,
+          consecutive_missed: consecutiveMissed,
+          last_attended_date: lastAttendedDate,
+          attendance_rate_pct: ratePct,
+          total_attended: totalAttended,
+          total_possible: totalPossible,
+        });
+      }
+    }
+
+    return alerts.sort((a, b) => b.consecutive_missed - a.consecutive_missed);
+  }, [consecutiveEventFilter, inactivityAlerts, sessions, attendanceRecords, activeMembers, inactivityThreshold]);
+
   // Filtered consecutive alerts
   const filteredConsecutiveAlerts = useMemo(() => {
-    return inactivityAlerts.filter(a => {
-      if (consecutiveEventFilter !== 'all') {
-        // Event filter
-      }
+    return eventScopedAlerts.filter(a => {
       if (departmentFilter !== 'all' && a.member.department !== departmentFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -118,27 +166,90 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
       }
       return true;
     });
-  }, [inactivityAlerts, departmentFilter, searchQuery, consecutiveEventFilter]);
+  }, [eventScopedAlerts, departmentFilter, searchQuery]);
 
   // 1-Tap Mark Member Present for this session
   const handleMarkPresent = async (sessionId: string, memberId: string) => {
-    const record: AttendanceRecord = {
-      id: crypto.randomUUID(),
-      session_id: sessionId,
-      member_id: memberId,
-      checked_in_at: new Date().toISOString(),
-      source: 'admin_manual',
-    };
-    await db.attendance_records.put(record);
-    await queueMutation('attendance_record', 'insert', record);
-    if (isSupabaseConfigured()) {
-      try {
-        await supabase.from('attendance_records').insert(record);
-      } catch (err) {
-        console.warn('Cloud mark present error:', err);
-      }
-    }
+    await markAttendance(sessionId, memberId, 'admin_manual');
     onRefresh();
+  };
+
+  const csvSafe = (value: string | number | null | undefined) => value ?? '';
+
+  // Export exactly what the admin is looking at (filters and search applied).
+  const exportAbsenteesCSV = () => {
+    const rows: (string | number)[][] = [
+      ['MISSING MEMBERS REPORT'],
+      ['Event', selectedEventObj?.name || '—'],
+      ['Session', effectiveSession?.session_date || '—'],
+      ['Exported', new Date().toLocaleString()],
+      ['Unit filter', departmentFilter === 'all' ? 'All units' : departmentFilter],
+      ['Search', searchQuery || '—'],
+      [],
+      ['Full Name', 'Department', 'Phone', 'Check-in Code', 'Status'],
+      ...filteredSessionAbsentees.map(m => [
+        csvSafe(m.full_name),
+        csvSafe(m.department || 'General'),
+        csvSafe(m.phone),
+        csvSafe(m.check_in_code),
+        'Absent',
+      ]),
+    ];
+    downloadCSV(
+      `missing-${(selectedEventObj?.name || 'session').replace(/\s+/g, '-').toLowerCase()}-${
+        effectiveSession?.session_date || 'no-date'
+      }.csv`,
+      rows
+    );
+  };
+
+  // Full register with presence for the session — the safety net for follow-up.
+  const exportRegisterCSV = () => {
+    const presentIds = new Set(effectiveRecords.map(r => r.member_id));
+    const rows: (string | number)[][] = [
+      ['ATTENDANCE REGISTER'],
+      ['Event', selectedEventObj?.name || '—'],
+      ['Session', effectiveSession?.session_date || '—'],
+      ['Exported', new Date().toLocaleString()],
+      ['Present', presentIds.size],
+      ['Roster', activeMembers.length],
+      [],
+      ['Full Name', 'Department', 'Phone', 'Check-in Code', 'Status'],
+      ...activeMembers.map(m => [
+        csvSafe(m.full_name),
+        csvSafe(m.department || 'General'),
+        csvSafe(m.phone),
+        csvSafe(m.check_in_code),
+        presentIds.has(m.id) ? 'Present' : 'Absent',
+      ]),
+    ];
+    downloadCSV(
+      `register-${(selectedEventObj?.name || 'session').replace(/\s+/g, '-').toLowerCase()}-${
+        effectiveSession?.session_date || 'no-date'
+      }.csv`,
+      rows
+    );
+  };
+
+  const exportInactivityCSV = () => {
+    const rows: (string | number)[][] = [
+      ['CONSECUTIVE ABSENCE REPORT'],
+      ['Threshold', `${inactivityThreshold}+ missed services`],
+      ['Exported', new Date().toLocaleString()],
+      ['Unit filter', departmentFilter === 'all' ? 'All units' : departmentFilter],
+      [],
+      ['Full Name', 'Department', 'Phone', 'Check-in Code', 'Consecutive Missed', 'Last Attended', 'Attendance %'],
+      ...filteredConsecutiveAlerts.map(a => [
+        csvSafe(a.member.full_name),
+        csvSafe(a.member.department || 'General'),
+        csvSafe(a.member.phone),
+        csvSafe(a.member.check_in_code),
+        a.consecutive_missed,
+        csvSafe(a.last_attended_date || 'Never'),
+        a.attendance_rate_pct,
+      ]),
+    ];
+    downloadCSV(`consecutive-absences-${new Date().toISOString().split('T')[0]}.csv`, rows);
   };
 
   return (
@@ -288,13 +399,31 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
           {/* Absentees List for this Service */}
           {filteredSessionAbsentees.length > 0 ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest">
                   Absent · {effectiveSession?.session_date} ({filteredSessionAbsentees.length})
                 </h3>
-                <span className="hidden sm:inline text-[11px] text-zinc-500 font-semibold">
-                  Tap WhatsApp to send a care message
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={exportAbsenteesCSV}
+                    disabled={filteredSessionAbsentees.length === 0}
+                    className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-yellow-400/60 text-zinc-300 hover:text-yellow-300 text-[11px] font-bold transition flex items-center gap-1.5 disabled:opacity-40 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Absent List</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportRegisterCSV}
+                    disabled={!effectiveSession || activeMembers.length === 0}
+                    className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-zinc-600 text-zinc-300 text-[11px] font-bold transition flex items-center gap-1.5 disabled:opacity-40 cursor-pointer"
+                    title="Export the full roster with present/absent status"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Full Register</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -465,75 +594,91 @@ export const MissingMembersView: React.FC<MissingMembersViewProps> = ({
 
           {/* Consecutive Alerts Cards */}
           {filteredConsecutiveAlerts.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredConsecutiveAlerts.map(alert => (
-                <div
-                  key={alert.member.id}
-                  className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl transition shadow-sm flex flex-col justify-between space-y-4"
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest">
+                  Inactive · {inactivityThreshold}+ Missed ({filteredConsecutiveAlerts.length})
+                </h3>
+                <button
+                  type="button"
+                  onClick={exportInactivityCSV}
+                  className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-yellow-400/60 text-zinc-300 hover:text-yellow-300 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-white text-base truncate">
-                          {alert.member.full_name}
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredConsecutiveAlerts.map(alert => (
+                  <div
+                    key={alert.member.id}
+                    className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl transition shadow-sm flex flex-col justify-between space-y-4"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-white text-base truncate">
+                            {alert.member.full_name}
+                          </div>
+                          <span className="text-xs text-zinc-400 block mt-0.5">
+                            {alert.member.department || 'General'}
+                          </span>
                         </div>
-                        <span className="text-xs text-zinc-400 block mt-0.5">
-                          {alert.member.department || 'General'}
+                        <span className="px-2.5 py-0.5 text-[10px] font-black rounded-full bg-zinc-800 text-zinc-200 whitespace-nowrap">
+                          {alert.consecutive_missed} Missed
                         </span>
                       </div>
-                      <span className="px-2.5 py-0.5 text-[10px] font-black rounded-full bg-zinc-800 text-zinc-200 whitespace-nowrap">
-                        {alert.consecutive_missed} Missed
-                      </span>
+
+                      <div className="space-y-1.5 text-xs text-zinc-400 mt-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-800">
+                        <div className="flex items-center justify-between">
+                          <span>Last Attended:</span>
+                          <span className="text-zinc-200 font-bold">
+                            {alert.last_attended_date || 'Never recorded'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Attendance Consistency:</span>
+                          <span className="text-zinc-100 font-bold">
+                            {alert.attendance_rate_pct}% ({alert.total_attended}/{alert.total_possible})
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="space-y-1.5 text-xs text-zinc-400 mt-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-800">
-                      <div className="flex items-center justify-between">
-                        <span>Last Attended:</span>
-                        <span className="text-zinc-200 font-bold">
-                          {alert.last_attended_date || 'Never recorded'}
+                    {/* Outreach Action Buttons */}
+                    <div className="pt-3 border-t border-zinc-800 flex items-center gap-2">
+                      {alert.member.phone ? (
+                        <>
+                          <a
+                            href={`tel:${alert.member.phone}`}
+                            className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-200 text-xs font-bold transition flex items-center justify-center border border-zinc-700"
+                            title="Call member"
+                          >
+                            <Phone className="w-4 h-4 text-yellow-400" />
+                          </a>
+                          <a
+                            href={`https://wa.me/${alert.member.phone.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(
+                              alert.member.full_name
+                            )},%20we%20missed%20you%20at%20fellowship%20recently!%20Hope%20everything%20is%20well%20with%20you.`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1 py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-yellow-950/40"
+                            title="Message on WhatsApp"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            <span>WhatsApp</span>
+                          </a>
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-zinc-500 italic py-1 text-center w-full">
+                          No phone recorded
                         </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Attendance Consistency:</span>
-                        <span className="text-zinc-100 font-bold">
-                          {alert.attendance_rate_pct}% ({alert.total_attended}/{alert.total_possible})
-                        </span>
-                      </div>
+                      )}
                     </div>
                   </div>
-
-                  {/* Outreach Action Buttons */}
-                  <div className="pt-3 border-t border-zinc-800 flex items-center gap-2">
-                    {alert.member.phone ? (
-                      <>
-                        <a
-                          href={`tel:${alert.member.phone}`}
-                          className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-200 text-xs font-bold transition flex items-center justify-center border border-zinc-700"
-                          title="Call member"
-                        >
-                          <Phone className="w-4 h-4 text-yellow-400" />
-                        </a>
-                        <a
-                          href={`https://wa.me/${alert.member.phone.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(
-                            alert.member.full_name
-                          )},%20we%20missed%20you%20at%20fellowship%20recently!%20Hope%20everything%20is%20well%20with%20you.`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex-1 py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 active:scale-95 text-black text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-yellow-950/40"
-                          title="Message on WhatsApp"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          <span>WhatsApp</span>
-                        </a>
-                      </>
-                    ) : (
-                      <span className="text-[11px] text-zinc-500 italic py-1 text-center w-full">
-                        No phone recorded
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : (
             <div className="p-12 text-center bg-zinc-900 border border-zinc-800 rounded-3xl space-y-2">
