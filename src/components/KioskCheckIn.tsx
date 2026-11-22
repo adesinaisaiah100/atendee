@@ -63,7 +63,7 @@ export const KioskCheckIn: React.FC<KioskCheckInProps> = ({
     const map = new Map<string, AttendanceRecord>();
     if (!session) return map;
     for (const r of attendanceRecords) {
-      if (r.session_id === session.id) {
+      if (r.session_id === session.id && r.status !== 'removed') {
         map.set(r.member_id, r);
       }
     }

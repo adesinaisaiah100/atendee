@@ -2,7 +2,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './lib/db';
-import { flushSyncQueue, hydrateFellowshipData, computeInactivityAlerts, queueMutation } from './lib/syncEngine';
+import {
+  flushSyncQueue,
+  hydrateFellowshipData,
+  computeInactivityAlerts,
+  queueMutation,
+  countFailedSync,
+  retryFailedSync,
+} from './lib/syncEngine';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { Navbar, type MainTab } from './components/Navbar';
@@ -15,7 +22,14 @@ import { SettingsView } from './components/SettingsView';
 import { JoinView } from './components/JoinView';
 import { CheckInView } from './components/CheckInView';
 import { InstallPrompt } from './components/InstallPrompt';
-import type { InactivityAlert } from './types';
+import type { AttendanceRecord, EventTemplate, InactivityAlert, Member, Session } from './types';
+
+// Stable empty identities: `useLiveQuery(...) || []` creates a new array every
+// render, which made every effect that depends on these lists re-run forever.
+const NO_MEMBERS: Member[] = [];
+const NO_EVENTS: EventTemplate[] = [];
+const NO_SESSIONS: Session[] = [];
+const NO_RECORDS: AttendanceRecord[] = [];
 
 /** Main Admin Dashboard (Multi-Tenant Scoped) */
 function AdminApp() {
@@ -26,36 +40,40 @@ function AdminApp() {
   const [inactivityThreshold, setInactivityThreshold] = useState(1);
   const [inactivityAlerts, setInactivityAlerts] = useState<InactivityAlert[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [failedSync, setFailedSync] = useState(0);
 
   const fellowshipId = fellowship?.id || '';
 
   useEffect(() => {
     if (!fellowshipId) return;
 
-    // 1. Initial hydration and queue flush
-    hydrateFellowshipData(fellowshipId).catch(console.warn);
-    flushSyncQueue().catch(console.warn);
+    let cancelled = false;
 
-    // 2. Poll every 10 seconds to sync changes from other devices
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        hydrateFellowshipData(fellowshipId).catch(console.warn);
-        flushSyncQueue().catch(console.warn);
+    // Push first, then pull. Doing it the other way round let the reconciler
+    // delete a mark that had not reached the server yet.
+    const runSync = async () => {
+      if (!navigator.onLine) return;
+      try {
+        await flushSyncQueue();
+        await hydrateFellowshipData(fellowshipId);
+        if (!cancelled) setFailedSync(await countFailedSync());
+      } catch (err) {
+        console.warn('Sync cycle error:', err);
       }
-    }, 10000);
+    };
 
-    // 3. Instant sync on tab focus or online event
+    runSync();
+    const interval = setInterval(runSync, 10000);
+
     const handleSync = () => {
-      if (navigator.onLine) {
-        hydrateFellowshipData(fellowshipId).catch(console.warn);
-        flushSyncQueue().catch(console.warn);
-      }
+      runSync();
     };
 
     window.addEventListener('online', handleSync);
     window.addEventListener('focus', handleSync);
 
     return () => {
+      cancelled = true;
       clearInterval(interval);
       window.removeEventListener('online', handleSync);
       window.removeEventListener('focus', handleSync);
@@ -64,25 +82,25 @@ function AdminApp() {
 
   // Live Reactive Queries Scoped to Current Tenant
   const members = useLiveQuery(
-    () => (fellowshipId ? db.members.where('fellowship_id').equals(fellowshipId).toArray() : []),
+    () => (fellowshipId ? db.members.where('fellowship_id').equals(fellowshipId).toArray() : NO_MEMBERS),
     [fellowshipId]
-  ) || [];
+  ) || NO_MEMBERS;
 
   const events = useLiveQuery(
-    () => (fellowshipId ? db.events.where('fellowship_id').equals(fellowshipId).toArray() : []),
+    () => (fellowshipId ? db.events.where('fellowship_id').equals(fellowshipId).toArray() : NO_EVENTS),
     [fellowshipId]
-  ) || [];
+  ) || NO_EVENTS;
 
   const sessions = useLiveQuery(
-    () => (fellowshipId ? db.sessions.where('fellowship_id').equals(fellowshipId).toArray() : []),
+    () => (fellowshipId ? db.sessions.where('fellowship_id').equals(fellowshipId).toArray() : NO_SESSIONS),
     [fellowshipId]
-  ) || [];
+  ) || NO_SESSIONS;
 
   const attendanceRecords = useLiveQuery(async () => {
-    if (!fellowshipId || sessions.length === 0) return [];
+    if (!fellowshipId || sessions.length === 0) return NO_RECORDS;
     const sessionIds = sessions.map(s => s.id);
     return db.attendance_records.where('session_id').anyOf(sessionIds).toArray();
-  }, [fellowshipId, sessions]) || [];
+  }, [fellowshipId, sessions]) || NO_RECORDS;
 
   // Active Open Session
   const activeSession = useMemo(() => {
@@ -110,6 +128,7 @@ function AdminApp() {
       });
       await queueMutation('session', 'update', {
         id: sessionId,
+        fellowship_id: fellowshipId,
         status: 'closed',
         closed_at: closedAt,
       });
@@ -187,6 +206,25 @@ function AdminApp() {
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-3.5 sm:px-8 py-6 sm:py-8 pb-28 sm:pb-12 overflow-x-hidden">
+        {failedSync > 0 && (
+          <div className="mb-6 bg-rose-950/60 border border-rose-800/60 rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <p className="text-xs font-bold text-rose-200 flex-1">
+              {failedSync} change{failedSync === 1 ? '' : 's'} could not be saved to the cloud. They are still on this
+              device and other phones cannot see them yet.
+            </p>
+            <button
+              type="button"
+              onClick={async () => {
+                await retryFailedSync();
+                setFailedSync(await countFailedSync());
+              }}
+              className="py-2 px-4 rounded-2xl bg-rose-500 text-black text-xs font-black active:scale-95 transition cursor-pointer"
+            >
+              Retry now
+            </button>
+          </div>
+        )}
+
         {/* Join Link Banner */}
         {fellowshipSlug && activeTab === 'people' && (
           <div className="mb-6 bg-zinc-900 border border-yellow-500/20 rounded-3xl p-4 sm:p-5 shadow-lg w-full overflow-hidden">
@@ -305,7 +343,13 @@ function JoinRoute() {
   return <JoinView slug={slug} />;
 }
 
-/** Public Self Check-in Route Wrapper (per-session link/QR) */
+/** Session check-in by rotatable token (preferred) */
+function TokenCheckInRoute() {
+  const token = window.location.hash.split('/c/')[1]?.split('/')[0]?.split('?')[0] || '';
+  return <CheckInView token={token} />;
+}
+
+/** Legacy session check-in by raw session id */
 function CheckInRoute() {
   const sessionId = window.location.hash.split('/checkin/')[1]?.split('/')[0]?.split('?')[0] || '';
   return <CheckInView sessionId={sessionId} />;
@@ -318,6 +362,7 @@ export function App() {
       <AuthProvider>
         <Routes>
           <Route path="/join/:slug" element={<JoinRoute />} />
+          <Route path="/c/:token" element={<TokenCheckInRoute />} />
           <Route path="/checkin/:sessionId" element={<CheckInRoute />} />
           <Route path="/*" element={<AdminApp />} />
         </Routes>

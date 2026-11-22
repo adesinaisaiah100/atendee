@@ -1,20 +1,31 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Calendar, CheckCircle2, UserPlus, AlertCircle, Phone } from 'lucide-react';
+import { Search, X, Calendar, CheckCircle2, UserPlus, AlertCircle, Phone, WifiOff } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ConfirmModal } from './ConfirmModal';
 import { AtendeeLogo } from './AtendeeLogo';
 import { InstallPrompt } from './InstallPrompt';
 import type { Member, Session, EventTemplate } from '../types';
 import { db } from '../lib/db';
-import { supabase } from '../lib/supabase';
-import { queueMutation, checkInMemberOptimistic } from '../lib/syncEngine';
-import { generateUniqueCode } from '../lib/codeGenerator';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { getDeviceId } from '../lib/syncEngine';
 
 interface CheckInViewProps {
-  sessionId: string;
+  /** Rotatable session token from #/c/:token (preferred). */
+  token?: string;
+  /** Legacy raw session id from #/checkin/:sessionId. */
+  sessionId?: string;
 }
 
-type ViewState = 'loading' | 'ended' | 'ready' | 'success';
+interface PublicSessionPayload {
+  ok: boolean;
+  reason?: string;
+  session?: Session;
+  event?: EventTemplate;
+  members?: Member[];
+  checked?: string[];
+}
+
+type ViewState = 'loading' | 'ended' | 'offline' | 'ready' | 'success';
 
 const DEPARTMENTS = [
   'General', 'Choir', 'Ushering', 'Media', 'Technical',
@@ -22,13 +33,15 @@ const DEPARTMENTS = [
 ];
 
 /**
- * Public self check-in via shared session link (#/checkin/:sessionId).
- * No login required. Only works while the session is OPEN — once the
- * admin ends it, this screen switches to an "ended" state, so forwarded
- * links can't fake attendance later.
+ * Public self check-in via a session token (#/c/:token).
+ *
+ * All reads and writes go through SECURITY DEFINER RPCs, so the anon key has no
+ * direct table access: the token only reveals one open session's roster, and the
+ * server decides which fellowship a mark belongs to.
  */
-export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
+export const CheckInView: React.FC<CheckInViewProps> = ({ token, sessionId }) => {
   const [viewState, setViewState] = useState<ViewState>('loading');
+  const [activeToken, setActiveToken] = useState(token || '');
   const [session, setSession] = useState<Session | null>(null);
   const [event, setEvent] = useState<EventTemplate | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -37,6 +50,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [actionError, setActionError] = useState('');
   const [successName, setSuccessName] = useState('');
   const [successCode, setSuccessCode] = useState<string | null>(null);
   const [alreadyWas, setAlreadyWas] = useState(false);
@@ -50,46 +64,62 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
   const [regError, setRegError] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
-      if (!sessionId) {
-        setViewState('ended');
+      let resolved = token?.trim() || '';
+
+      // Legacy link: the admin device may still hold the token locally.
+      if (!resolved && sessionId) {
+        const local = await db.sessions.get(sessionId);
+        resolved = local?.share_token || '';
+      }
+
+      if (!resolved) {
+        if (!cancelled) setViewState('ended');
         return;
       }
+
+      if (!cancelled) setActiveToken(resolved);
+
+      if (!navigator.onLine || !isSupabaseConfigured()) {
+        if (!cancelled) setViewState('offline');
+        return;
+      }
+
       try {
-        const { data: sess, error } = await supabase
-          .from('sessions')
-          .select('*')
-          .eq('id', sessionId)
-          .maybeSingle();
-        if (error || !sess || (sess as Session).status !== 'open') {
+        const { data, error } = await supabase.rpc('public_session', { p_token: resolved });
+        if (cancelled) return;
+        if (error) {
+          console.error('Check-in load error:', error);
           setViewState('ended');
           return;
         }
-        const s = sess as Session;
-        setSession(s);
 
-        const [{ data: ev }, { data: mems }, { data: recs }] = await Promise.all([
-          supabase.from('events').select('*').eq('id', s.event_id).maybeSingle(),
-          supabase.from('members').select('*').eq('fellowship_id', s.fellowship_id).eq('is_active', true),
-          supabase.from('attendance_records').select('member_id').eq('session_id', s.id),
-        ]);
-
-        if (ev) setEvent(ev as EventTemplate);
-        if (mems) {
-          const list = (mems as Member[]).sort((a, b) => a.full_name.localeCompare(b.full_name));
-          setMembers(list);
-          // Cache roster locally so the device stays usable offline-ish
-          try { await db.members.bulkPut(list); } catch { /* ignore */ }
+        const payload = data as PublicSessionPayload | null;
+        if (!payload?.ok || !payload.session) {
+          setViewState('ended');
+          return;
         }
-        if (recs) setCheckedInIds(new Set((recs as { member_id: string }[]).map(r => r.member_id)));
+
+        setSession(payload.session);
+        setEvent(payload.event || null);
+        setMembers(
+          [...(payload.members || [])].sort((a, b) => a.full_name.localeCompare(b.full_name))
+        );
+        setCheckedInIds(new Set(payload.checked || []));
         setViewState('ready');
       } catch (err) {
         console.error('Check-in load error:', err);
-        setViewState('ended');
+        if (!cancelled) setViewState(navigator.onLine ? 'ended' : 'offline');
       }
     }
+
     load();
-  }, [sessionId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, sessionId]);
 
   const filteredMembers = useMemo(() => {
     if (!searchQuery.trim()) return members;
@@ -103,11 +133,29 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
   }, [members, searchQuery]);
 
   const doCheckIn = async (memberId: string, name: string, code: string | null, wasAlready: boolean) => {
-    if (!session) return;
+    if (!session || !activeToken) return;
     setIsCheckingIn(true);
+    setActionError('');
     try {
       if (!wasAlready) {
-        await checkInMemberOptimistic(session.id, memberId, 'self');
+        const { data, error } = await supabase.rpc('public_check_in', {
+          p_token: activeToken,
+          p_member_id: memberId,
+          p_device_id: getDeviceId(),
+        });
+
+        if (error) throw error;
+
+        const payload = data as { ok: boolean; reason?: string } | null;
+        if (!payload?.ok) {
+          if (payload?.reason === 'closed') {
+            setViewState('ended');
+          } else {
+            setActionError('That check-in could not be saved. Please ask an admin to mark you present.');
+          }
+          return;
+        }
+
         setCheckedInIds(prev => new Set(prev).add(memberId));
         confetti({
           particleCount: 80,
@@ -124,6 +172,11 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
       setViewState('success');
     } catch (err) {
       console.error('Self check-in error:', err);
+      setActionError(
+        navigator.onLine
+          ? 'Could not reach the server. Please try again in a moment.'
+          : 'You appear to be offline. Ask an admin to mark you on the attendance phone.'
+      );
     } finally {
       setIsCheckingIn(false);
     }
@@ -137,42 +190,74 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!session || !regName.trim()) return;
+    if (!session || !activeToken || !regName.trim()) return;
     setRegError('');
     setIsRegistering(true);
     try {
       const name = regName.trim();
-      if (members.some(m => m.full_name.toLowerCase() === name.toLowerCase())) {
-        setRegError('That name is already on the roster — search for it above instead.');
-        setIsRegistering(false);
+
+      const { data, error } = await supabase.rpc('public_join_session', {
+        p_token: activeToken,
+        p_full_name: name,
+        p_phone: regPhone.trim() || null,
+        p_department: regDept,
+        p_device_id: getDeviceId(),
+      });
+
+      if (error) throw error;
+
+      const payload = data as
+        | { ok: boolean; error?: string; member_id?: string; full_name?: string; code?: string }
+        | null;
+
+      if (!payload?.ok || !payload.member_id) {
+        setRegError(
+          payload?.error === 'duplicate_name'
+            ? 'That name is already on the roster — search for it above instead.'
+            : 'Could not complete registration. Please try again.'
+        );
         return;
       }
-      const code = await generateUniqueCode(session.fellowship_id, event?.name || 'Fellowship');
+
       const newMember: Member = {
-        id: crypto.randomUUID(),
+        id: payload.member_id,
         fellowship_id: session.fellowship_id,
-        full_name: name,
+        full_name: payload.full_name || name,
         phone: regPhone.trim() || undefined,
         department: regDept,
-        check_in_code: code,
+        check_in_code: payload.code || '',
         joined_at: new Date().toISOString().split('T')[0],
         is_active: true,
         is_newcomer: true,
         created_at: new Date().toISOString(),
       };
-      try { await db.members.put(newMember); } catch { /* ignore */ }
-      await queueMutation('member', 'insert', newMember);
-      try { await supabase.from('members').insert(newMember); } catch (err) {
-        console.warn('Link-reg member insert error:', err);
-      }
-      setMembers(prev => [...prev, newMember].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+
+      setMembers(prev =>
+        [...prev.filter(m => m.id !== newMember.id), newMember].sort((a, b) =>
+          a.full_name.localeCompare(b.full_name)
+        )
+      );
+      setCheckedInIds(prev => new Set(prev).add(newMember.id));
       setShowReg(false);
       setRegName('');
       setRegPhone('');
-      await doCheckIn(newMember.id, newMember.full_name, code, false);
+      setSuccessName(newMember.full_name);
+      setSuccessCode(payload.code || null);
+      setAlreadyWas(false);
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.7 },
+        colors: ['#facc15', '#f59e0b', '#fbbf24', '#ffffff'],
+      });
+      setViewState('success');
     } catch (err) {
       console.error('Link registration error:', err);
-      setRegError('Could not complete registration. Please try again.');
+      setRegError(
+        navigator.onLine
+          ? 'Could not complete registration. Please try again.'
+          : 'You are offline. Ask an admin to add you to the roster.'
+      );
     } finally {
       setIsRegistering(false);
     }
@@ -198,6 +283,30 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
           <p className="text-xs text-zinc-400 leading-relaxed">
             This check-in link is no longer active — the session has ended or the link is invalid.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'offline') {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col justify-center items-center p-4">
+        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 text-center space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-zinc-800 text-zinc-400 flex items-center justify-center mx-auto">
+            <WifiOff className="w-7 h-7" />
+          </div>
+          <h2 className="text-lg font-black text-white">You're Offline</h2>
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            Check-in needs a connection so the attendance phone sees you. Reconnect, then refresh this page — or ask
+            an admin to mark you present.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="w-full py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-black text-sm rounded-2xl transition cursor-pointer"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -267,6 +376,12 @@ export const CheckInView: React.FC<CheckInViewProps> = ({ sessionId }) => {
             {event ? event.name : 'Service Check-in'}
           </h1>
         </div>
+
+        {actionError && (
+          <p className="mb-4 text-xs font-bold text-rose-200 bg-rose-950/60 border border-rose-800/60 rounded-2xl p-3">
+            {actionError}
+          </p>
+        )}
 
         <div className="relative mb-4">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />

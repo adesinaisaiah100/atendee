@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { EventTemplate, Session, Member, AttendanceRecord } from '../types';
 import { db } from '../lib/db';
-import { queueMutation } from '../lib/syncEngine';
+import { queueMutation, markAttendance, unmarkAttendance } from '../lib/syncEngine';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { exportSessionCSV, downloadCSV } from '../lib/exportUtils';
 import { ShareCheckInModal } from './ShareCheckInModal';
@@ -92,10 +92,12 @@ export const EventsView: React.FC<EventsViewProps> = ({
     return sessions.find(s => s.id === managingSessionId) || null;
   }, [sessions, managingSessionId]);
 
-  // Records for managing session
+  // Records for managing session (exclude tombstoned removals)
   const managingRecords = useMemo(() => {
     if (!managingSession) return [];
-    return attendanceRecords.filter(r => r.session_id === managingSession.id);
+    return attendanceRecords.filter(
+      r => r.session_id === managingSession.id && r.status !== 'removed'
+    );
   }, [attendanceRecords, managingSession]);
 
   const departments = ['all', 'Choir', 'Ushering', 'Media', 'Technical', 'Welfare', 'Bible Study', 'General'];
@@ -173,7 +175,14 @@ export const EventsView: React.FC<EventsViewProps> = ({
     await queueMutation('session', 'insert', newSess);
     if (isSupabaseConfigured()) {
       try {
-        await supabase.from('sessions').insert(newSess);
+        const { data: inserted } = await supabase
+          .from('sessions')
+          .insert(newSess)
+          .select()
+          .maybeSingle();
+        if (inserted) {
+          await db.sessions.put(inserted as Session);
+        }
       } catch (err) {
         console.warn('Cloud start session error:', err);
       }
@@ -242,33 +251,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
       .equals([sessionId, memberId])
       .first();
 
-    if (existing) {
-      await db.attendance_records.delete(existing.id);
-      await queueMutation('attendance_record', 'delete', { id: existing.id });
-      if (isSupabaseConfigured()) {
-        try {
-          await supabase.from('attendance_records').delete().eq('id', existing.id);
-        } catch (err) {
-          console.warn('Cloud delete record error:', err);
-        }
-      }
+    if (existing && existing.status !== 'removed') {
+      // Admins may undo anyone from the admin device.
+      await unmarkAttendance(sessionId, memberId, { force: true });
     } else {
-      const record: AttendanceRecord = {
-        id: crypto.randomUUID(),
-        session_id: sessionId,
-        member_id: memberId,
-        checked_in_at: new Date().toISOString(),
-        source: 'admin_manual',
-      };
-      await db.attendance_records.put(record);
-      await queueMutation('attendance_record', 'insert', record);
-      if (isSupabaseConfigured()) {
-        try {
-          await supabase.from('attendance_records').insert(record);
-        } catch (err) {
-          console.warn('Cloud insert record error:', err);
-        }
-      }
+      await markAttendance(sessionId, memberId, 'admin_manual');
     }
     onRefresh();
   };
@@ -286,7 +273,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
     ];
 
     eventSessions.forEach(sess => {
-      const count = attendanceRecords.filter(r => r.session_id === sess.id).length;
+      const count = attendanceRecords.filter(
+        r => r.session_id === sess.id && r.status !== 'removed'
+      ).length;
       const rate = activeMembers.length > 0 ? Math.round((count / activeMembers.length) * 100) : 0;
       rows.push([
         sess.session_date,
@@ -312,7 +301,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
         await db.sessions.where('event_id').equals(eventId).delete();
       }
       await db.events.delete(eventId);
-      await queueMutation('event', 'delete', { id: eventId });
+      await queueMutation('event', 'delete', { id: eventId, fellowship_id: fellowshipId });
 
       if (isSupabaseConfigured()) {
         try {
@@ -342,7 +331,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
     ) {
       await db.attendance_records.where('session_id').equals(sessionId).delete();
       await db.sessions.delete(sessionId);
-      await queueMutation('session', 'delete', { id: sessionId });
+      await queueMutation('session', 'delete', { id: sessionId, fellowship_id: fellowshipId });
 
       if (isSupabaseConfigured()) {
         try {
@@ -472,7 +461,9 @@ export const EventsView: React.FC<EventsViewProps> = ({
           {eventSessions.length > 0 ? (
             <div className="grid grid-cols-1 gap-3.5">
               {eventSessions.map(sess => {
-                const records = attendanceRecords.filter(r => r.session_id === sess.id);
+                const records = attendanceRecords.filter(
+                  r => r.session_id === sess.id && r.status !== 'removed'
+                );
                 const isSessionLive = sess.status === 'open';
                 const presentCount = records.length;
                 const totalCount = activeMembers.length;
@@ -941,7 +932,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
         {/* Self check-in Share (QR + link) modal */}
         <ShareCheckInModal
-          session={shareSession}
+          session={
+            shareSession
+              ? sessions.find(s => s.id === shareSession.id) || shareSession
+              : null
+          }
           eventName={selectedEvent.name}
           isOpen={shareSession !== null}
           onClose={() => setShareSession(null)}

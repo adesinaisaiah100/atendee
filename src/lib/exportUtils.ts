@@ -29,7 +29,8 @@ export function downloadCSV(filename: string, rows: (string | number)[][]) {
 
 // 1. Export Specific Session Check-in Roster
 export async function exportSessionCSV(session: Session, eventName: string) {
-  const records = await db.attendance_records.where('session_id').equals(session.id).toArray();
+  const allRecords = await db.attendance_records.where('session_id').equals(session.id).toArray();
+  const records = allRecords.filter(r => r.status !== 'removed');
   const memberIds = records.map(r => r.member_id);
   const members = await db.members.where('id').anyOf(memberIds).toArray();
   const memberMap = new Map(members.map(m => [m.id, m]));
@@ -97,7 +98,9 @@ export async function exportAllMembersAttendanceRateCSV(fellowshipId: string, ti
 
   for (let i = 0; i < members.length; i++) {
     const m = members[i];
-    const attendedRecords = await db.attendance_records.where('member_id').equals(m.id).toArray();
+    const attendedRecords = (
+      await db.attendance_records.where('member_id').equals(m.id).toArray()
+    ).filter(r => r.status !== 'removed');
     const attendedCount = attendedRecords.length;
     const rate = totalPossible > 0 ? Math.round((attendedCount / totalPossible) * 100) : 0;
 
